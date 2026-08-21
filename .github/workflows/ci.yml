@@ -50,8 +50,20 @@ jobs:
           # dashboard/API rather than assuming it stays that way.
           node-version: '24'
 
-      # No install step: this repo has no dependencies. The check uses only the node standard
-      # library, deliberately, so there is nothing here that can rot or need a lockfile.
+      # No install step: this repo has no dependencies. Both checks use only the node standard
+      # library, deliberately, so there is nothing here that can rot or need a lockfile. Each step
+      # carries its own `if`, so one red gate does not hide the other — a local `&&` chain would
+      # report exactly one failure however many there are.
+
       - name: static checks
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: node scripts/ci-check.mjs
+
+      # The app's own behavioural suite, moved here from quick-tools with the app on 2026-08-21.
+      # 72 assertions over the real shipped corpus, no network. The one that earns it runs the
+      # page's own buildOptions() and requires that no two answer options ever share an emoji:
+      # once the options became pictures, a repeated glyph stopped being "hard" and became
+      # unanswerable, and the real data does contain repeats across modules.
+      - name: 'test: rumi behaviour'
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: node scripts/rumi-unit-test.mjs

@@ -240,6 +240,26 @@ if (existsSync('vercel.json')) {
 }
 
 // ---------------------------------------------------------------------------
+// 7b. The voice bakeoff page. It came across with Rumi on 2026-08-21 because it is a Rumi
+//     artifact — Whit compares candidate voices on it by ear — and leaving it in quick-tools
+//     would have meant the toolchain that generates it lived in a repo the app had left. It is
+//     not the product, so it gets a lighter check than the app: it must be present and its
+//     inline script must parse. `cleanUrls` serves it at /rumi-voice-bakeoff with no rewrite,
+//     which is the same path shape it had before the move, so Whit's existing link still works.
+// ---------------------------------------------------------------------------
+const BAKEOFF = 'rumi-voice-bakeoff.html';
+if (existsSync(BAKEOFF)) {
+  const bake = readFileSync(BAKEOFF, 'utf8');
+  ok(`asset present: ${BAKEOFF} (${bake.length} bytes)`);
+  const bakeBlocks = [...bake.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)];
+  for (const [i, [, , code]] of bakeBlocks.entries()) {
+    if (code.trim()) parses(code, `js parses: ${BAKEOFF} block ${i + 1} (${code.length} bytes)`);
+  }
+} else {
+  bad(`asset present: ${BAKEOFF}`, 'the voice bakeoff page is missing. It moved here with Rumi on 2026-08-21 and Whit holds its URL; if it was deliberately retired, remove this assertion in the same commit so the gate keeps meaning something.');
+}
+
+// ---------------------------------------------------------------------------
 // 8. No index.html. Root CLAUDE.md, ratified 2026-08-17: a file is only named index.html when a
 //    web server requires that exact name to resolve a live URL. Here one does not — the rewrite
 //    above serves the bare domain from a descriptively named file, which is what makes the app

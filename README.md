@@ -13,9 +13,26 @@ Vercel generated for this project is the one that counts; do not guess it from t
 | Path | What it is |
 |---|---|
 | `rumi-espanol-app.html` | the whole app, 7,041,806 bytes |
+| `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
-| `scripts/ci-check.mjs` | the gate. 17 assertions, no network, no dependencies |
-| `.github/workflows/ci.yml` | runs the gate on every push |
+| `scripts/ci-check.mjs` | the structural gate. 20 assertions, no network, no dependencies |
+| `scripts/rumi-unit-test.mjs` | the behavioural suite. 72 assertions over the real shipped corpus |
+| `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
+| `.github/workflows/ci.yml` | runs both gates on every push |
+
+## Regenerating the content
+
+The audio is produced from the strings in the app and embedded back into it. The source audio
+lives under `build/`, which is **not in the repo** — regenerating needs a voice credential Whit
+holds, so a fresh clone can run the gates but not the generators.
+
+```bash
+npm run rumi:strings    # list the phrases the app asks for
+npm run rumi:audio      # render the Spanish clips
+npm run rumi:cues       # render the English idle-help cues
+npm run rumi:embed      # base64 both banks back into the app file
+npm run rumi:bakeoff    # rebuild the voice comparison page
+```
 
 **There is no `index.html` and that is deliberate.** Root `CLAUDE.md`, ratified 2026-08-17: a file
 is named `index.html` only when a web server requires that exact name to resolve a live URL. Here
@@ -34,9 +51,10 @@ the conditions it exists to survive.
 
 The cost is honest and worth stating: the page is 7 MB and the first load is not fast.
 
-## The gate, and the one assertion that matters
+## The gates, and the one assertion that matters
 
-`node scripts/ci-check.mjs` — 17 assertions, runs in about a second, needs nothing installed.
+`npm run check` — 20 assertions, runs in about a second, needs nothing installed.
+`npm run test:rumi` — 72 more, over the real shipped corpus, also with no network.
 
 Most of it is ordinary: the file is present, the inline scripts parse, the stylesheet is non-empty,
 `vercel.json` parses and its rewrites resolve to a real file with an extensionless destination
@@ -55,6 +73,13 @@ place, and plays silence. The user is five. She will not file a bug.
 
 Proven red three ways before it was trusted: a clip truncated mid-file, a syntax error in the app
 block, and an `index.html` appearing.
+
+The behavioural suite is the other half. Its own headline assertion runs the page's `buildOptions()`
+against the real corpus and requires that no two answer options ever share an emoji — once the
+options became pictures, a repeated glyph stopped being merely hard and became unanswerable, and
+the shipped data really does contain repeats across modules. A second one asserts that this repo
+has no middleware, no auth and no cookie-conditional routing, because the user is five and must
+never meet a login screen.
 
 ## Provenance
 
