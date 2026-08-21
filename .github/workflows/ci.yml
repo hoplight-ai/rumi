@@ -1,0 +1,57 @@
+# Every push gets checked. Leapfrog L2, 2026-08-09.
+#
+# NO SECRETS IN THIS FILE, AND NONE MAY BE ADDED TO IT. A gate that needs a live key belongs in a
+# separate workflow, and must print a SKIP line and exit 0 when the key is absent — never a red run
+# for a decision only the repo owner can make.
+#
+# WHY THIS ONE IS NOT THE NODE TEMPLATE. hoplight-ai/repo-template ships a build-only `npm ci &&
+# npm run build` job. This repo has no package.json and no build step at all: it is one 7 MB
+# rumi-espanol-app.html with the markup, the styles, the app logic and 304 base64-encoded audio
+# clips all inline, served straight off Vercel. Dropping the node template here would produce a
+# workflow that is red on every push forever, which is worse than no workflow, because a check
+# nobody can make green stops being read within a week.
+#
+# What `scripts/ci-check.mjs` gates instead is the failure this app actually has: a hand-edit that
+# breaks an inline <script>, or an audio bank that lost or truncated clips. The second one is the
+# reason this file exists — a cut clip renders a perfect page and plays silence, the user is five
+# years old, and nothing else in the world will report it.
+#
+# Observed green (17 assertions) and observed red three separate ways — a clip truncated mid-file,
+# a syntax error in the app block, and an index.html appearing — locally on 2026-08-21 before this
+# file was committed. A gate nobody has seen fail is a gate nobody knows is connected.
+
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    # This name string is what a required status check would match on. Renaming the job silently
+    # stops it being recognized as that check. Do not rename it.
+    name: ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        id: setup
+        with:
+          # Match this to the Vercel project's own nodeVersion so CI runs on what production runs
+          # on. Every project in this org is on 24.x as of 2026-08-09 — confirm via the Vercel
+          # dashboard/API rather than assuming it stays that way.
+          node-version: '24'
+
+      # No install step: this repo has no dependencies. The check uses only the node standard
+      # library, deliberately, so there is nothing here that can rot or need a lockfile.
+      - name: static checks
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: node scripts/ci-check.mjs
