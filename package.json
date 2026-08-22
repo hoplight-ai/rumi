@@ -12,6 +12,7 @@
     "rumi:audio": "node scripts/rumi-audio.mjs",
     "rumi:cues": "node scripts/rumi-cues.mjs",
     "rumi:extract": "node scripts/rumi-extract.mjs",
+    "rumi:trim-audit": "node scripts/rumi-trim-audit.mjs",
     "rumi:bakeoff": "node scripts/rumi-bakeoff.mjs",
     "rumi:embed": "node scripts/rumi-audio.mjs --map && node scripts/rumi-cues.mjs --map && node scripts/rumi-embed.mjs"
   }

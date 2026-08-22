@@ -28,11 +28,27 @@ holds, so a fresh clone can run the gates but not the generators.
 
 ```bash
 npm run rumi:strings    # list the phrases the app asks for
+npm run rumi:extract    # rebuild build/ from the shipped page (reuse, never resynthesize)
 npm run rumi:audio      # render the Spanish clips
-npm run rumi:cues       # render the English idle-help cues
+npm run rumi:cues       # render the English cues (idle help + phrase glosses)
 npm run rumi:embed      # base64 both banks back into the app file
 npm run rumi:bakeoff    # rebuild the voice comparison page
 ```
+
+**The English policy, as amended (RUMI L4, 2026-08-22).** RUMI3 ruled that English is spoken only
+on idle and only on a correct HEAR/FIND answer, so that she hears Spanish first. Whit amended it:
+*"the single words can be only spanish but the phrases are too hard to figure out without the
+english"* — an emoji can carry `rojo` 🔴 but not `¿Me dejas jugar contigo?`. So on the **first
+meeting** of a phrase card (no star yet) Rumi speaks a sandwich — Spanish, a beat, the English
+meaning once, a beat, Spanish again — and every phrase card carries a small 🇬🇧 control that
+replays the English on demand. The last thing she ever hears is Spanish, because that is what she
+repeats; once the card has its star the sandwich retires, so English never becomes predictable.
+Which cards count as phrases is decided by exactly one rule, `needsGloss()` in
+`scripts/rumi-strings.mjs`, with a textual twin in the app that the unit test holds in agreement;
+per-card `gloss: true/false` overrides exist for where the token-count proxy is wrong (the
+article+noun vocabulary in `mesa` and `ropa` stays Spanish-only, `Espérame` glosses despite being
+one word). English is en-GB-SoniaNeural, Spanish is es-ES-XimenaNeural — two languages, two
+audibly different people.
 
 **There is no `index.html` and that is deliberate.** Root `CLAUDE.md`, ratified 2026-08-17: a file
 is named `index.html` only when a web server requires that exact name to resolve a live URL. Here
@@ -49,7 +65,10 @@ succeed. The gate asserts this directly — zero subresource references — beca
 direction of drift is to split the audio out into files, and that would break the app in exactly
 the conditions it exists to survive.
 
-The cost is honest and worth stating: the page is 7 MB and the first load is not fast.
+The cost is honest and worth stating: the page is 8.4 MB and the first load is not fast. About
+1.9 MB of that is trailing edge-tts silence — `npm run rumi:trim-audit` measures it — left in
+place deliberately: cutting it changes the app's pacing (clip end drives every completion
+callback) and no trim ships without a human listening to a sample first.
 
 ## The gates, and the one assertion that matters
 
