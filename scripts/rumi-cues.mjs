@@ -23,7 +23,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { readModules, normalizeKey } from './rumi-strings.mjs';
+import { readModules, normalizeKey, needsGloss } from './rumi-strings.mjs';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -81,11 +81,14 @@ export function collectEnglish(html) {
   for (const m of modules) {
     add(m.en);                                   // module name, spoken on the reveal path
     for (const c of m.cards || []) {
-      // ONLY hear and find. Those are the two card types where she taps an answer and the
-      // app then tells her whether her guess mapped to the right thing — the single moment
-      // English earns a voice. Recording the English for every card would add ~1.6MB of
-      // audio that nothing ever plays, on a page that has to open over hotel wifi.
-      if (c.t === 'hear' || c.t === 'find') add(c.en);
+      // Two gates, deliberately a union (RUMI L4 amends RUMI3, it does not repeal it):
+      //   - hear/find keep their clip whatever needsGloss says, because the correct-answer
+      //     reveal plays the English after she commits to a guess, single words included.
+      //   - needsGloss() adds every phrase card — say, answer, do — whose meaning the emoji
+      //     cannot carry, for the first-meeting sandwich and the W3b repeat control.
+      if (needsGloss(c) || c.t === 'hear' || c.t === 'find') add(c.en);
+      // The reply is the payoff line and it is the half she has to understand.
+      if (c.reply && needsGloss({ t: 'reply', es: c.reply.es, gloss: c.reply.gloss })) add(c.reply.en);
     }
   }
   return [...out.entries()].map(([key, text]) => ({ key, text }));

@@ -39,6 +39,27 @@ export function normalizeKey(s) {
   return String(s).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/** Does this card's meaning need an English voice? The emoji cannot carry a phrase.
+ *
+ * RUMI L4, 2026-08-22 (Whit's ruling: "the single words can be only spanish but the
+ * phrases are too hard to figure out without the english"). The rule, in order:
+ *   1. An explicit `gloss: true` / `gloss: false` on the card wins. Nothing else is consulted.
+ *   2. `letter` cards never gloss — reading the letter is the point, and `en` there is the
+ *      example word's meaning, which its own emoji already carries.
+ *   3. Otherwise a phrase is anything whose Spanish has two or more whitespace-separated
+ *      tokens. Token count is a proxy; `gloss:` exists for where it is wrong.
+ * `answer` replies are checked by callers through a `{t:'reply', es, gloss}` pseudo-card.
+ *
+ * The SAME logic exists as needsGloss() in rumi-espanol-app.html, which decides what to
+ * PLAY while this copy decides what to RECORD. The drift assertion in rumi-unit-test.mjs
+ * runs both over the real card set — change them together or not at all. */
+export function needsGloss(card) {
+  if (card.gloss === true) return true;
+  if (card.gloss === false) return false;
+  if (card.t === 'letter') return false;
+  return String(card.es || '').trim().split(/\s+/).filter(Boolean).length >= 2;
+}
+
 /** Pull the `const MODULES = [ ... ];` literal out of the HTML and evaluate it. */
 export function readModules(html) {
   const start = html.indexOf('const MODULES = [');

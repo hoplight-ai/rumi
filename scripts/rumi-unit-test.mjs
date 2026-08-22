@@ -10,8 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collect, normalizeKey, expand, readModules, FIXED_STRINGS } from './rumi-strings.mjs';
-import { HELP_LINES } from './rumi-cues.mjs';
+import { collect, normalizeKey, expand, readModules, FIXED_STRINGS, needsGloss } from './rumi-strings.mjs';
+import { HELP_LINES, collectEnglish } from './rumi-cues.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(ROOT, 'rumi-espanol-app.html'), 'utf8');
@@ -212,7 +212,9 @@ ok('the decoder namespaces its cache so the two maps cannot collide',
   /const cacheKey = \(ns \|\| "es"\) \+ "\|" \+ k;/.test(html));
 ok('English help fires on IDLE, not on arrival', /const IDLE_MS = 5000;/.test(html) && /armIdleHelp/.test(html));
 ok('any tap stands the help line down', /addEventListener\("pointerdown", cancelIdleHelp, true\)/.test(html));
-ok('help never talks over Rumi', /if\(speaking\)\{ armIdleHelp\(c\); return; \}/.test(html));
+/* RUMI L4 widened this check: the beats inside the sandwich are silent on purpose, and
+   the help line must not mistake them for "stuck". */
+ok('help never talks over Rumi (or over a sandwich beat)', /if\(speaking \|\| glossing\)\{ armIdleHelp\(c\); return; \}/.test(html));
 ok('every CUE_KEY has a generated line', (() => {
   const keys = html.match(/const CUE_KEY = \{([\s\S]*?)\};/)[1];
   const wanted = [...keys.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
@@ -241,6 +243,110 @@ ok('every CUE_KEY has a generated line', (() => {
   const effective = (1 + rate / 100) * rabbit;
   ok(`rabbit is faster than walk but not chipmunked (base ${rate}%, x${rabbit} -> ${Math.round((effective - 1) * 100)}%)`,
     rabbit > 1 && effective > 1 + rate / 100 && rabbit <= 1.35);
+}
+
+/* ================= RUMI L4: phrases get an English voice =================
+   Whit's ruling, 2026-08-22: single words can be Spanish-only, phrases cannot. These
+   assertions hold the three invariants that make it safe: generator and runtime agree on
+   WHICH cards gloss, every gloss the runtime can ask for is really in the bank, and the
+   sandwich retires (star) and ends in Spanish (what she repeats). */
+{
+  /* --- drift gate #2: needsGloss agrees between generator and runtime --- */
+  const src = html.match(/function needsGloss\(card\)\{([^}]*)\}/);
+  ok('rumi-espanol-app.html defines needsGloss', Boolean(src));
+  const pageNeedsGloss = src ? new Function('card', src[1]) : null;
+  if (pageNeedsGloss) {
+    const subjects = [];
+    for (const c of cards) {
+      subjects.push(c);
+      if (c.reply) subjects.push({ t: 'reply', es: c.reply.es, gloss: c.reply.gloss });
+    }
+    const disagree = subjects.filter((s) => Boolean(pageNeedsGloss(s)) !== Boolean(needsGloss(s)));
+    ok(`page needsGloss agrees with generator needsGloss on every card and reply (${subjects.length} subjects)`, disagree.length === 0);
+    if (disagree.length) fails.push(`  first disagreement: "${disagree[0].es}"`);
+
+    const singles = cards.filter((c) => c.gloss === undefined && String(c.es).trim().split(/\s+/).filter(Boolean).length < 2);
+    ok(`no untagged single-word card ever glosses (${singles.length} cards)`, singles.length > 0 && singles.every((c) => !pageNeedsGloss(c)));
+    ok('letter cards are never glossed', cards.filter((c) => c.t === 'letter').every((c) => !pageNeedsGloss(c)));
+    ok('an explicit gloss:true wins over the token rule', pageNeedsGloss({ t: 'say', es: 'uno', gloss: true }) === true);
+    ok('an explicit gloss:false wins over the token rule', pageNeedsGloss({ t: 'say', es: 'dos palabras', gloss: false }) === false);
+  }
+
+  /* --- the bank: zero misses, zero orphans --- */
+  const cueTag = html.match(/<script id="rumiCues">window\.RUMI_CUES = ([\s\S]*?);<\/script>/);
+  ok('the English bank is embedded and populated', Boolean(cueTag));
+  if (cueTag) {
+    const bank = new Set(Object.keys(JSON.parse(cueTag[1])));
+    const wanted = collectEnglish(html);
+    const missing = wanted.filter((it) => !bank.has(it.key));
+    ok(`every English string the gate collects is in the bank — zero misses (${wanted.length} wanted)`, missing.length === 0);
+    if (missing.length) fails.push(`  first miss: "${missing[0].text}"`);
+    const wantedKeys = new Set(wanted.map((it) => it.key));
+    const orphans = [...bank].filter((k) => !wantedKeys.has(k));
+    ok(`no orphan English clip that no card can ask for (${bank.size} in bank)`, orphans.length === 0);
+    if (orphans.length) fails.push(`  first orphan: "${orphans[0]}"`);
+
+    /* and through the page's OWN lookup: every glossed card and reply lands on a clip,
+       so the sandwich can actually play rather than degrading everywhere. */
+    const gk = html.match(/function glossKey\(en\)\{([\s\S]*?)\n\}/);
+    ok('rumi-espanol-app.html defines glossKey', Boolean(gk));
+    if (gk) {
+      const pageGlossKey = new Function('en', 'clipKey', gk[1]);
+      const glossed = [];
+      for (const c of cards) {
+        if (needsGloss(c)) glossed.push(c.en);
+        if (c.reply && needsGloss({ t: 'reply', es: c.reply.es, gloss: c.reply.gloss })) glossed.push(c.reply.en);
+      }
+      const unreachable = glossed.filter((en) => {
+        const k = pageGlossKey(en, normalizeKey);
+        return !k || !bank.has(k);
+      });
+      ok(`every glossed card and reply reaches a real clip (${glossed.length} glosses)`, glossed.length > 0 && unreachable.length === 0);
+      if (unreachable.length) fails.push(`  first unreachable: "${unreachable[0]}"`);
+    }
+  }
+
+  /* --- the sandwich shape, EXECUTED with the page's own function --- */
+  const ss = html.match(/function speakSandwich\(text, enKey, done\)\{([\s\S]*?)\n\}/);
+  ok('rumi-espanol-app.html defines speakSandwich', Boolean(ss));
+  if (ss) {
+    const run = (enKey) => {
+      const calls = [];
+      const speakStub = (t, cb) => { calls.push('es'); if (cb) cb(); };
+      const cueStub = (k, cb) => { calls.push('en'); if (cb) cb(); };
+      const timeoutStub = (fn) => { fn(); return 0; };
+      const fn = new Function('text', 'enKey', 'done', 'speak', 'playCueDone', 'setTimeout', 'GLOSS_GAP_MS', 'glossing', 'glossTimer', ss[1]);
+      fn('hola amigo', enKey, null, speakStub, cueStub, timeoutStub, 0, false, null);
+      return calls;
+    };
+    const sandwich = run('some-key');
+    ok('the sandwich is Spanish, English once, Spanish', sandwich.join(',') === 'es,en,es');
+    ok('the last thing she hears is Spanish', sandwich[sandwich.length - 1] === 'es');
+    ok('no gloss key means plain Spanish, once', run(null).join(',') === 'es');
+  }
+
+  /* --- the two retirement gates live where the key is chosen --- */
+  const sk = html.match(/function sandwichKeyFor\(c\)\{([\s\S]*?)\n\}/);
+  ok('rumi-espanol-app.html defines sandwichKeyFor', Boolean(sk));
+  if (sk) {
+    ok('a card that does not need a gloss never sandwiches', /if\(!needsGloss\(c\)\) return null;/.test(sk[1]));
+    ok('a starred card never sandwiches', /\(S\.stars\[cur\.id\] \|\| \[\]\)\.indexOf\(idx\) >= 0\) return null;/.test(sk[1]));
+  }
+
+  /* --- wiring --- */
+  ok('playCard speaks through the sandwich', /speakSandwich\(spokenOf\(c\), sandwichKeyFor\(c\),/.test(html));
+  ok('the reveal decides the reply sandwich BEFORE markDone stars the card',
+    /const firstMeeting = \(S\.stars\[cur\.id\] \|\| \[\]\)\.indexOf\(idx\) < 0;[\s\S]{0,900}markDone\(\);/.test(html));
+  ok('the reply sandwich goes through the same needsGloss rule',
+    /needsGloss\(\{t:"reply", es:c\.reply\.es, gloss:c\.reply\.gloss\}\)/.test(html));
+
+  /* --- W3b: the repeat control, emoji only --- */
+  ok('the repeat control is emoji only', /b\.textContent = "🇬🇧";/.test(html) && html.includes('className = "glossbtn"'));
+  ok('the repeat control renders only on cards whose gloss is really in the bank',
+    /const k = needsGloss\(c\) \? reachableGlossKey\(c\.en\) : null;\s*\n\s*if\(!k\) return;/.test(html));
+  ok('every card builder offers the repeat control (say, hear, find, do, answer)',
+    (html.match(/addGlossBtn\(row, c\);/g) || []).length === 5);
+  ok('the repeat control keeps its meaning for a screen reader', html.includes('"hear what it means in English"'));
 }
 
 console.log(`${pass} passed, ${fails.length} failed`);
