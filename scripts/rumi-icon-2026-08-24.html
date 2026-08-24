@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!--
+  SOURCE for the home-screen and browser-tab icons. Rendered by scripts/build-preview-assets.mjs at
+  180 (iOS home screen), 32 (browser tab), and 192 / 512 (web-app manifest).
+
+  THE CAT AND NOTHING ELSE. No wordmark inside the tile: at 60 physical points on a home screen a
+  word is unreadable, and iOS prints "Rumi" underneath from apple-mobile-web-app-title, which the
+  app already sets. This is the one surface a five-year-old navigates by, so the cat gets the whole
+  tile rather than sharing it.
+
+  The sprite is copied path-for-path out of rumi-espanol-app.html. Re-copy and re-render if it
+  changes there.
+
+  The cat's ink sits high in its own 0..100 box -- ears reach y=14, the chin stops near y=83 -- so
+  the viewBox is nudged to centre the INK rather than the box. Verified numerically after rendering,
+  not by eye.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rumi icon — source</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:180px;height:180px}
+  body{
+    background:#1b1233;
+    background-image:radial-gradient(circle at 50% 40%, #3a2568 0%, #1b1233 78%);
+    display:flex; align-items:center; justify-content:center;
+  }
+  svg{ width:158px; height:158px; }
+</style>
+</head>
+<body>
+  <svg viewBox="0 -3 100 100" aria-hidden="true">
+    <!-- ears -->
+    <path d="M22 40 L18 14 L42 28 Z" fill="#3a2a5c"/>
+    <path d="M78 40 L82 14 L58 28 Z" fill="#3a2a5c"/>
+    <path d="M25 37 L23 21 L38 30 Z" fill="#e0409a"/>
+    <path d="M75 37 L77 21 L62 30 Z" fill="#e0409a"/>
+    <!-- head -->
+    <ellipse cx="50" cy="55" rx="31" ry="28" fill="#4a3570"/>
+    <!-- purple streak with blue tip -->
+    <path d="M30 30 C22 44 21 60 26 78 L34 76 C29 60 30 45 37 33 Z" fill="#b07bff"/>
+    <path d="M26 78 C27 84 29 88 32 92 L40 88 C36 84 35 80 34 76 Z" fill="#3ab8f0"/>
+    <!-- eyes -->
+    <ellipse cx="40" cy="53" rx="5.5" ry="6.5" fill="#fff"/>
+    <ellipse cx="61" cy="53" rx="5.5" ry="6.5" fill="#fff"/>
+    <circle cx="40.5" cy="54" r="3.2" fill="#1b1233"/>
+    <circle cx="61.5" cy="54" r="3.2" fill="#1b1233"/>
+    <circle cx="42" cy="52" r="1.1" fill="#fff"/>
+    <circle cx="63" cy="52" r="1.1" fill="#fff"/>
+    <!-- nose + mouth -->
+    <path d="M50 62 l-3.5 -3 h7 Z" fill="#ffc0dd"/>
+    <path d="M50 65 q-4 4 -7 1" stroke="#1b1233" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <path d="M50 65 q4 4 7 1" stroke="#1b1233" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <!-- whiskers -->
+    <path d="M28 60 h-9 M28 65 h-8 M72 60 h9 M72 65 h8" stroke="#ffffff66" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>
+</body>
+</html>

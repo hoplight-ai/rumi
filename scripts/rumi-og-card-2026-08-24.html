@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!--
+  SOURCE for Rumi's link-preview card. Rendered to PNG by scripts/build-preview-assets.mjs; the PNG
+  is what ships. Not served as a page.
+
+  THE CAT IS COPIED, NOT REDRAWN. It is the #rumiCat sprite out of rumi-espanol-app.html, path for
+  path. A second hand-drawn cat would drift from the one in the app the first time either changed,
+  and the whole point of an icon on a five-year-old's home screen is that she recognises it before
+  she can read the word underneath. If the sprite in the app changes, re-copy it here and re-render.
+
+  Palette is the app's own :root block. The deletion list: no screenshots of the app, no word count,
+  no "304 clips" figure, no app-store furniture. A card for a link Whit sends to family needs the
+  cat, the name, and one sentence.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rumi — link preview card source</title>
+<style>
+  :root{
+    --ink:#1b1233; --purple:#7b3fe4; --magenta:#e0409a; --gold:#ffc53d; --cream:#fff7ef;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1200px;height:630px}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--ink);
+    background-image:radial-gradient(circle at 50% 34%, #33215e 0%, #1b1233 70%);
+    color:var(--cream);
+    display:flex; align-items:center; justify-content:center; gap:66px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .cat{ width:300px; height:300px; flex:none; }
+  .words{ display:flex; flex-direction:column; }
+  h1{ font-size:112px; font-weight:800; letter-spacing:-.035em; line-height:.95; }
+  h1 .es{ color:var(--gold); }
+  .lede{
+    margin-top:22px; font-size:29px; font-weight:400; line-height:1.35;
+    color:rgba(255,247,239,.66); max-width:520px;
+  }
+  .rule{ margin-top:34px; width:190px; height:7px; border-radius:4px; background:var(--magenta); }
+</style>
+</head>
+<body>
+  <svg class="cat" viewBox="0 0 100 100" aria-hidden="true">
+    <!-- ears -->
+    <path d="M22 40 L18 14 L42 28 Z" fill="#3a2a5c"/>
+    <path d="M78 40 L82 14 L58 28 Z" fill="#3a2a5c"/>
+    <path d="M25 37 L23 21 L38 30 Z" fill="#e0409a"/>
+    <path d="M75 37 L77 21 L62 30 Z" fill="#e0409a"/>
+    <!-- head -->
+    <ellipse cx="50" cy="55" rx="31" ry="28" fill="#4a3570"/>
+    <!-- purple streak with blue tip -->
+    <path d="M30 30 C22 44 21 60 26 78 L34 76 C29 60 30 45 37 33 Z" fill="#b07bff"/>
+    <path d="M26 78 C27 84 29 88 32 92 L40 88 C36 84 35 80 34 76 Z" fill="#3ab8f0"/>
+    <!-- eyes -->
+    <ellipse cx="40" cy="53" rx="5.5" ry="6.5" fill="#fff"/>
+    <ellipse cx="61" cy="53" rx="5.5" ry="6.5" fill="#fff"/>
+    <circle cx="40.5" cy="54" r="3.2" fill="#1b1233"/>
+    <circle cx="61.5" cy="54" r="3.2" fill="#1b1233"/>
+    <circle cx="42" cy="52" r="1.1" fill="#fff"/>
+    <circle cx="63" cy="52" r="1.1" fill="#fff"/>
+    <!-- nose + mouth -->
+    <path d="M50 62 l-3.5 -3 h7 Z" fill="#ffc0dd"/>
+    <path d="M50 65 q-4 4 -7 1" stroke="#1b1233" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <path d="M50 65 q4 4 7 1" stroke="#1b1233" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <!-- whiskers -->
+    <path d="M28 60 h-9 M28 65 h-8 M72 60 h9 M72 65 h8" stroke="#ffffff66" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>
+  <div class="words">
+    <h1>Rumi<br><span class="es">Español</span></h1>
+    <p class="lede">A Spanish app for a five-year-old who cannot read yet.</p>
+    <div class="rule"></div>
+  </div>
+</body>
+</html>

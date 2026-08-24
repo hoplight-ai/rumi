@@ -71,12 +71,51 @@ const html = readFileSync(APP, 'utf8');
 //    this repo has quietly acquired an asset pipeline it has no way to precache, and the app
 //    starts failing in exactly the conditions it exists to survive.
 // ---------------------------------------------------------------------------
+//    TWO NAMED EXCEPTIONS, added 2026-08-24, and the shape of the exception is the point.
+//
+//    `apple-touch-icon` and `manifest` are not subresources of the running app. Nothing on the page
+//    reads them and no code path waits on them: iOS fetches the touch icon once, at the moment
+//    somebody taps "Add to Home Screen", and a browser fetches the manifest at install time. Both
+//    happen while the phone is online and by definition not while the app is being used. So the
+//    harm this rule exists to prevent -- the app failing in the conditions it was built to survive
+//    -- cannot occur through these two, and the rule's own sentence about acquiring an unprecachable
+//    asset pipeline does not describe them.
+//
+//    They are not inlined as data URIs, which is what the rest of this check would push you toward,
+//    because iOS does not reliably honour a data-URI apple-touch-icon and Chrome dropped data-URI
+//    manifests outright. An inlined icon would satisfy this gate and then not appear on the home
+//    screen, which is worse than either honest outcome. The favicon IS inlined, because a data-URI
+//    favicon does work.
+//
+//    The exception is BY REL NAME, not by file extension or by path, and the assertion below proves
+//    the allowance is exactly those two and nothing else. A stylesheet, a script src, an img src, an
+//    audio src or a font still fail this check exactly as before -- verified by observation, see the
+//    RUMI preview-assets commit.
+// ---------------------------------------------------------------------------
+const ALLOWED_LINK_RELS = new Set(['apple-touch-icon', 'manifest']);
+
 const refs = new Set();
-for (const [, href] of html.matchAll(/<link[^>]*\shref\s*=\s*["']([^"']+)["']/gi)) refs.add(href);
+const allowedByRel = [];
+for (const [, attrs, href] of html.matchAll(/<link([^>]*)\shref\s*=\s*["']([^"']+)["']/gi)) {
+  const rel = (attrs.match(/\srel\s*=\s*["']([^"']+)["']/i)?.[1] || '').trim().toLowerCase();
+  if (ALLOWED_LINK_RELS.has(rel)) {
+    allowedByRel.push(`${rel} -> ${href}`);
+    continue;
+  }
+  refs.add(href);
+}
 for (const [, src] of html.matchAll(/<(?:script|img|audio|source|iframe)[^>]*\ssrc\s*=\s*["']([^"']+)["']/gi)) refs.add(src);
 const external = [...refs].filter((r) => !r.startsWith('data:'));
 if (external.length === 0) ok('page is self-contained: 0 subresource references');
 else bad('page is self-contained', `references ${external.join(', ')}. Rumi is one file on purpose — it must work with no network. Inline it or this app breaks offline.`);
+
+// The exception is narrow on purpose, so state its size out loud rather than letting it be a hole
+// nobody counts. If this number climbs, somebody widened the rule without saying so.
+if (allowedByRel.length <= ALLOWED_LINK_RELS.size) {
+  ok(`OS-metadata links exempt by rel name: ${allowedByRel.length} (${allowedByRel.join(', ') || 'none'})`);
+} else {
+  bad('OS-metadata exemption stayed narrow', `${allowedByRel.length} exempt links found, cap is ${ALLOWED_LINK_RELS.size}: ${allowedByRel.join(', ')}`);
+}
 
 // ---------------------------------------------------------------------------
 // 3. Every inline script block parses, and the stylesheet is non-empty. A syntax slip in the

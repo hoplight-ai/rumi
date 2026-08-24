@@ -7,6 +7,42 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Rumi">
 <title>Rumi Español</title>
+
+<!-- Link preview, home-screen icon and web-app manifest.
+     THE og:image URL IS ABSOLUTE AND MUST STAY ABSOLUTE. A relative path renders as a blank card in
+     iMessage with no error and no warning, and there is no build step in this repo that could catch
+     it. The only real test is pasting the live URL into an actual text message and looking at it.
+     The apple-touch-icon is the load-bearing one here: without it iOS saves a screenshot of
+     whatever was on screen as the home-screen tile, and this app is navigated by a five-year-old
+     who recognises the cat and cannot read the label under it.
+     PNGs are generated from scripts/rumi-*-2026-08-24.html by scripts/build-preview-assets.mjs.
+     The cat in those sources is copied path-for-path from the #rumiCat sprite below; re-copy and
+     re-render if it changes. -->
+<meta name="description" content="A Spanish app for a five-year-old who cannot read yet. Tap, listen, repeat — no reading required.">
+<meta name="application-name" content="Rumi">
+<meta name="theme-color" content="#1b1233">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Rumi">
+<meta property="og:title" content="Rumi Español">
+<meta property="og:description" content="A Spanish app for a five-year-old who cannot read yet. Tap, listen, repeat — no reading required.">
+<meta property="og:url" content="https://rumi-rouge.vercel.app/">
+<meta property="og:image" content="https://rumi-rouge.vercel.app/rumi-og-card.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Rumi Español — a Spanish app for a five-year-old who cannot read yet">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Rumi Español">
+<meta name="twitter:description" content="A Spanish app for a five-year-old who cannot read yet. Tap, listen, repeat — no reading required.">
+<meta name="twitter:image" content="https://rumi-rouge.vercel.app/rumi-og-card.png">
+
+<!-- The tab icon is inlined as a data URI so the page keeps its "zero subresources" property
+     exactly. scripts/ci-check.mjs permits data: for this reason. -->
+<link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAACXElEQVR4nISWUXYsIQhES48reL9vGdn/2sgoIIXiZD76JDRtX7AKe/z/94Pr11oTkXWdf2NdBZ9IxwpZZOV4vmbOHHv2E0cbqH4zG7bKeiE0e96guF01Mh+bocXhcaDf9OvJmWykHokVF3vU6reb54ut83kT7grkYrfI5x+p2VvJrvm96L6xi7Mnxu/ssIjsio8KgtGIiPHNrgUY9VFrZ3ZnEc99sEdcnB0S+5dqGpl9K8H31tjB7K6oou9zAdeurtMRO95UhMGI0Dj3vSV27rvfDe21bsoxjyQW3yu59C7MTn1P7JrfgzFULNR3rwPf9X5qydfBeChkMUpow5pn7Lj0frBjV9zZsazxeKsycjx7dceRfGPx4cohLRfsQccaO3xjy2bfdLg6W2YXk5SYxhs57sWOxK77N7in4YatRcTueSa05IKd5phnagXJmbCN4LjtoVT+KDQmyQc2TnDMENZyzCWuyas52JGqlI6tqpZ04nqwQXOx+8lTzCty61RRoYddk1x6dZ20djictCegedUfs56Uw73eGr9qWjRgdl2hOxGQnIy7p1xTcoMZP/lmq7G7TGDs+Ov8OhxuEeQq45wYqGeO7oRkfzB76CTPMezvFz8PhJUjYR3SEsjhet4dqtc22VmUq1w+WMaIrweaOcaO/UF0+eM4w4ndv4skz8hq5giueZVIY9be58qofIvXzIkc6zUO1ZPq7FzpMTWTb1HPnJ2DWznETmd4j6kpeZ6UM+fLN1KDey2doL3SPqImhYkdwrOm2/Or0ePSfpqFj8lqXYZ+BaU4+2be/wUAAP//uV0QuAAAAAZJREFUAwC50s3x7PvgqQAAAABJRU5ErkJggg==">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
 <style>
   :root{
     --ink:#1b1233;
