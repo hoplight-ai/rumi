@@ -304,6 +304,12 @@
   .tracehead{display:flex;align-items:center;gap:8px;font-weight:900;font-size:15px;opacity:.55;
     line-height:1;flex:0 0 auto}
   .tracehead .th-emo{font-size:24px}
+  /* The countable objects on a number card. They wrap in fives, the same rhythm the number
+     card itself used, so ten reads as two rows of five and not as an unreadable line. */
+  .tracehead .th-count{display:flex;flex-wrap:wrap;gap:2px;max-width:210px;line-height:1}
+  .tracehead .th-count span{font-size:22px}
+  .tracehead .th-count.many{max-width:106px}
+  .tracehead .th-count.many span{font-size:17px}
   .tracepad{flex:1;width:100%;min-height:0;display:block;touch-action:none}
   /* The accent (magenta) encodes exactly ONE idea on this screen: where a stroke begins and
      which way it travels. Ink is what she has already drawn, ghost is what is still to come,
@@ -349,6 +355,8 @@
   @media (max-height:480px){
     .tracehead{font-size:12px}
     .tracehead .th-emo{font-size:18px}
+    .tracehead .th-count span{font-size:17px}
+    .tracehead .th-count.many span{font-size:13px}
     .countrow span{font-size:26px}
     .countrow.many span{font-size:20px}
     .cardbox{max-width:420px;padding:12px 14px;gap:6px}
@@ -1415,8 +1423,20 @@ function renderCard(autoPlay){
   else if(c.t === "hear") buildHear(stage, c);
   else if(c.t === "find") buildFind(stage, c);
   else if(c.t === "do")   buildDo(stage, c);
-  else if(c.t === "letter") buildLetter(stage, c);
-  else if(c.t === "num")  buildNum(stage, c);
+  else if(c.t === "letter" || c.t === "num"){
+    /* TRACE1 AMENDED 2026-08-25, and the amendment matters more than the original call.
+       The trace used to be the card's SECOND beat: the letter card showed first, Rumi
+       spoke, and only then did the card flip to the glyph. On a real phone that reads as
+       "the tracing is missing" — you land on a card, nothing to trace is on screen, and
+       if you tap the arrow you never see it at all. So the glyph is now on screen from
+       the first frame and she can start writing immediately. Rumi still says the letter
+       and its word; she says it OVER the letter instead of before it, and the stroke
+       instruction follows when she stops. A card with no glyph, or one gated by age,
+       falls back to the card it always was. */
+    if(!enterTrace(c, true)){
+      if(c.t === "num") buildNum(stage, c); else buildLetter(stage, c);
+    }
+  }
   else                    buildAnswer(stage, c);
 
   /* One place, six card types. Each builder writes its own English cue; this inserts the
@@ -1641,7 +1661,11 @@ function playCard(){
        no glyph data, or her stored age is below that glyph's minAge — it ends exactly as it
        did before this lane existed, with a star and a green arrow. */
     if(c.t === "letter" || c.t === "num"){
-      if(!enterTrace(c)){
+      /* The glyph is already on screen — renderCard put it there before a word was spoken.
+         Rumi has now finished the letter and its word, so the stroke instruction follows.
+         A card with nothing traceable ends the way it always did, star and green arrow. */
+      if(tr) trBegin();
+      else{
         markDone();
         const n = document.getElementById("nextBtn");
         n.className = "next go";
@@ -2254,7 +2278,24 @@ function trFinish(){
 
 /* Build the trace stage. Returns false when this card has nothing traceable, and the caller
    then ends the card exactly as it did before this lane existed. */
-function enterTrace(c){
+/* The strip above the glyph, and on a number card it is the teaching, not decoration.
+   `cuatro` means four of something, so the four things have to be visible while she writes
+   the 4 — the numeral alone teaches the shape and not the quantity. A letter card wants the
+   opposite: one picture and the word it starts with. Both keep the Spanish word, never the
+   English, which is the app's standing rule. */
+function traceHead(c){
+  if(c.t === "num"){
+    const n = Math.max(0, Number(c.count) || 0);
+    let row = "";
+    for(let i = 0; i < n; i++) row += "<span>" + c.emo + "</span>";
+    return '<span class="th-count' + (n > 5 ? " many" : "") + '">' + row + '</span>' +
+           '<span>' + fill(c.es) + '</span>';
+  }
+  return '<span class="th-emo">' + (c.wemo || c.emo || "") + '</span>' +
+         '<span>' + (c.word || fill(c.es)) + '</span>';
+}
+
+function enterTrace(c, defer){
   const list = traceGlyphsFor(c);
   if(!list) return false;
   /* Pack the glyphs left to right off their own bounding boxes, so `10` renders as two marks
@@ -2271,8 +2312,7 @@ function enterTrace(c){
   const box = document.createElement("div");
   box.className = "tracebox";
   box.innerHTML =
-    '<div class="tracehead"><span class="th-emo">' + (c.wemo || c.emo || "") + '</span>' +
-      '<span>' + (c.word || fill(c.es)) + '</span></div>' +
+    '<div class="tracehead">' + traceHead(c) + '</div>' +
     '<svg class="tracepad" id="trSvg" aria-hidden="true">' +
       '<g id="trGhost"></g><g id="trDone"></g>' +
       '<path id="trDemo" class="tr-demo"></path>' +
@@ -2286,7 +2326,10 @@ function enterTrace(c){
   const btn = document.createElement("button");
   btn.className = "play";
   btn.innerHTML = "🔊";
-  btn.onclick = () => { trSayCue(); trDemo(); };
+  /* The trace IS the card now, so this is the card's only 🔊 and it has to carry both
+     halves: the letter and its word, then the stroke instruction. It used to replay the
+     stroke cue alone, which was right when the letter card still existed behind it. */
+  btn.onclick = () => { stopSpeech(); speak(spokenOf(c), trBegin); };
   row.appendChild(btn);
   stage.appendChild(row);
 
@@ -2295,8 +2338,20 @@ function enterTrace(c){
   trDraw();
   /* The viewBox depends on the rendered size of the SVG, which is 0 until layout has run once. */
   requestAnimationFrame(() => { if(tr) trDraw(); });
-  setTimeout(() => { if(tr) { trSayCue(); trDemo(); } }, 300);
+  /* `defer` means the trace opened as the card's first beat, so Rumi has not said the
+     letter yet and the stroke instruction must wait its turn — playCard speaks the letter
+     and its word, then calls trBegin(). Without it the two would talk over each other. */
+  if(!defer) setTimeout(trBegin, 300);
   return true;
+}
+
+/* The trace's spoken half: the stroke instruction and the demonstration stroke, together.
+   Separated out because two different things now start it — the end of Rumi's sentence,
+   and the 🔊 button. */
+function trBegin(){
+  if(!tr || tr.done) return;
+  trSayCue();
+  trDemo();
 }
 
 /* --- NUM: count the things, hear the Spanish word, then write the numeral --- */

@@ -524,7 +524,8 @@ ok('every CUE_KEY has a generated line', (() => {
       nums.every((c) => !needsGloss(c)));
     ok('num is wired into every place a card type has to appear',
       /const START = \{[^}]*num:"/.test(html) && /const TURN {2}= \{[^}]*num:"/.test(html)
-      && /num: {4}"say it with rumi"/.test(html) && /c\.t === "num"\) {2}buildNum/.test(html));
+      && /num: {4}"say it with rumi"/.test(html)
+      && /if\(c\.t === "num"\) buildNum\(stage, c\); else buildLetter\(stage, c\);/.test(html));
   }
 
   /* --- the trace flag drives the card, and the age gate drives the trace --- */
@@ -532,9 +533,28 @@ ok('every CUE_KEY has a generated line', (() => {
   // naive grep for t:"trace" goes red on the comment explaining why there is no such type.
   ok('tracing is a flag on the existing letter card, not a seventh card type',
     cards.every((c) => c.t !== 'trace')
-    && /if\(c\.t === "letter" \|\| c\.t === "num"\)\{\s*\n\s*if\(!enterTrace\(c\)\)\{/.test(html));
+    && /else if\(c\.t === "letter" \|\| c\.t === "num"\)\{[\s\S]{0,1200}if\(!enterTrace\(c, true\)\)\{/
+      .test(html));
+
+  /* THE DEFECT THIS PAIR EXISTS TO CATCH, found in the field on 2026-08-25 and reported as
+     "rumi doesn't have the tracing yet". It was there. It only appeared once Rumi had
+     finished speaking, so anyone who landed on a letter and looked saw an ordinary card,
+     and anyone who tapped forward never saw it at all. The whole feature was invisible.
+     The rule now: the glyph is painted BEFORE a word is spoken, from renderCard and not
+     from a speech callback, and the stroke instruction is what waits its turn instead. */
+  ok('the letter to trace is on screen before Rumi speaks, not after she finishes',
+    /if\(!enterTrace\(c, true\)\)\{/.test(html)
+    && /if\(!defer\) setTimeout\(trBegin, 300\);/.test(html)
+    && !/speakSandwich\([\s\S]{0,2000}if\(!enterTrace\(c\)\)/.test(html));
+  ok('the stroke instruction waits for the end of the sentence, so the two never overlap',
+    /function trBegin\(\)\{[\s\S]{0,200}trSayCue\(\);[\s\S]{0,80}trDemo\(\);/.test(html)
+    && /if\(tr\) trBegin\(\);/.test(html));
   ok('a card with nothing traceable still stars and still advances',
-    /if\(!enterTrace\(c\)\)\{[\s\S]{0,220}markDone\(\);[\s\S]{0,160}"next go";/.test(html));
+    /if\(!enterTrace\(c, true\)\)\{[\s\S]{0,160}buildNum\(stage, c\); else buildLetter\(stage, c\);/
+      .test(html)
+    && /if\(tr\) trBegin\(\);\s*\n\s*else\{[\s\S]{0,240}markDone\(\);[\s\S]{0,160}"next go";/.test(html));
+  ok('the trace 🔊 replays the letter AND the stroke instruction, not the stroke alone',
+    /btn\.onclick = \(\) => \{ stopSpeech\(\); speak\(spokenOf\(c\), trBegin\); \};/.test(html));
   ok('the age gate reads the stored age, never a hardcoded list of letters',
     /\(g\.minAge \|\| 0\) > \(S\.age \|\| 5\)\) return null;/.test(html)
     && !/diagonalsOn|DIAGONAL_LETTERS/.test(html));

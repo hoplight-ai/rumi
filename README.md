@@ -52,11 +52,19 @@ audibly different people.
 
 ## Tracing, and why the cues are Spanish
 
-She traces the letter on the same card that teaches her its Spanish name. Rumi says
-*"efe. F de flor"*, the flower is there, and then the card is replaced by one very large ghost F
-with a numbered dot on the stroke she starts with. Whit's instruction, 2026-08-24: *"we need to
-have the letter tracing within the Spanish language rumi app so that when you're practicing
-letters, you're also learning Spanish."*
+She traces the letter on the same card that teaches her its Spanish name. The card opens as one
+very large ghost F with a numbered dot on the stroke she starts with, and Rumi says *"efe. F de
+flor"* over it. Whit's instruction, 2026-08-24: *"we need to have the letter tracing within the
+Spanish language rumi app so that when you're practicing letters, you're also learning Spanish."*
+
+**The glyph is painted before a word is spoken, and that ordering is a fix, not a preference.**
+It shipped the other way round on 2026-08-24: the letter card showed first and only flipped to
+the glyph once Rumi had finished the sentence. Whit found it on a phone the next morning and
+reported the feature missing. It was not missing, it was invisible — you land on a card, there is
+nothing to trace on screen, and if you tap forward you never see it at all. So `renderCard` now
+opens the trace itself and the *stroke instruction* is what waits for the end of the sentence.
+Two assertions hold that ordering, and the one named *the letter to trace is on screen before
+Rumi speaks* fails against the build that shipped.
 
 **The stroke instruction is Spanish and that is the whole idea.** `Baja una línea grande`,
 `Cruza por arriba`, `Empieza arriba y da la vuelta` — 41 of them, one per distinct stroke, said
@@ -68,8 +76,14 @@ outbound network, so `edge-tts` could not run. They are enumerated by `rumi-stri
 then they fall through to the device's own Spanish voice like any un-regenerated string.
 
 **Tracing is a flag, not a card type.** `trace:"F"` rides on the existing `letter` card, so
-hearing the letter and writing it stay one activity with two beats. A separate `trace` card type
-would have made them two activities again.
+hearing the letter and writing it stay one activity. A separate `trace` card type would have made
+them two activities again. A card with no glyph, or one gated by age, falls back to the plain
+letter or number card it was before any of this existed.
+
+**A number card carries its countable things into the trace.** `cuatro` means four of something,
+so four strawberries sit above the `4` while she writes it; the numeral alone would teach the
+shape and not the quantity. They wrap in fives, so `diez` reads as two rows and not as a line
+nobody can count.
 
 **The age gate is the stored age, never a list of letters.** A glyph whose `minAge` is above
 `S.age` still shows and still speaks; she is simply not asked to write it. At the shipped default
