@@ -12,11 +12,11 @@ Vercel generated for this project is the one that counts; do not guess it from t
 
 | Path | What it is |
 |---|---|
-| `rumi-espanol-app.html` | the whole app, 7,041,806 bytes |
+| `rumi-espanol-app.html` | the whole app, 8,483,696 bytes |
 | `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
-| `scripts/ci-check.mjs` | the structural gate. 20 assertions, no network, no dependencies |
-| `scripts/rumi-unit-test.mjs` | the behavioural suite. 72 assertions over the real shipped corpus |
+| `scripts/ci-check.mjs` | the structural gate. 22 assertions, no network, no dependencies |
+| `scripts/rumi-unit-test.mjs` | the behavioural suite. 144 assertions over the real shipped corpus |
 | `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
 | `.github/workflows/ci.yml` | runs both gates on every push |
 
@@ -50,6 +50,64 @@ article+noun vocabulary in `mesa` and `ropa` stays Spanish-only, `Espérame` glo
 one word). English is en-GB-SoniaNeural, Spanish is es-ES-XimenaNeural — two languages, two
 audibly different people.
 
+## Tracing, and why the cues are Spanish
+
+She traces the letter on the same card that teaches her its Spanish name. Rumi says
+*"efe. F de flor"*, the flower is there, and then the card is replaced by one very large ghost F
+with a numbered dot on the stroke she starts with. Whit's instruction, 2026-08-24: *"we need to
+have the letter tracing within the Spanish language rumi app so that when you're practicing
+letters, you're also learning Spanish."*
+
+**The stroke instruction is Spanish and that is the whole idea.** `Baja una línea grande`,
+`Cruza por arriba`, `Empieza arriba y da la vuelta` — 41 of them, one per distinct stroke, said
+while her hand moves. They are BYTE-IDENTICAL on every repetition, because the point is that she
+repeats them, and varying the wording destroys the mechanism. They live in the dataset, never in
+a phrasing function. **They have no recorded clip yet** — the lane that built this had no
+outbound network, so `edge-tts` could not run. They are enumerated by `rumi-strings.mjs`, so
+`npm run rumi:audio && npm run rumi:embed` records and embeds them with no further edit; until
+then they fall through to the device's own Spanish voice like any un-regenerated string.
+
+**Tracing is a flag, not a card type.** `trace:"F"` rides on the existing `letter` card, so
+hearing the letter and writing it stay one activity with two beats. A separate `trace` card type
+would have made them two activities again.
+
+**The age gate is the stored age, never a list of letters.** A glyph whose `minAge` is above
+`S.age` still shows and still speaks; she is simply not asked to write it. At the shipped default
+of 5 everything is traceable, so the gate is invisible until a grown-up sets a younger age.
+
+**There is no timer and no self-ending session,** deliberately. The letter app that this geometry
+came from ends itself after seven minutes because it has no other terminal state; Rumi has
+seventeen of them — the end of a module, with the wind-down that already exists. A clock that cut
+her off mid-module would delete the ending that already teaches "we're done". The bounding is per
+stroke instead: three failed attempts let the stroke through, silently, and `▶︎` is live the whole
+time so she can leave a letter whenever she likes.
+
+### The stroke geometry, and the file that owns it
+
+`letters/letters-app.html`, in the sibling `letters` repo, is the **author** of every shared
+glyph. Both apps are one self-contained HTML file with no build step, so there is no shared
+import to make and the data is copied into `<script id="rumiGlyphs">`. Fix shared geometry
+**there** and re-copy; an edit made here is the one that gets silently reverted.
+
+Section 12 of `rumi-unit-test.mjs` compares all 62 shared glyphs field by field and fails on any
+difference. It compares geometry only — `path`, `start`, `order`, `direction`, `strokeFamily`,
+`minAge`, `case` — because `cue` is deliberately not shared. When the sibling checkout is absent,
+as it is in CI, it prints `SKIP` and the sentence *a skip is not a pass* rather than counting an
+assertion.
+
+`Ñ` and `ñ` are **authored here and nowhere else**: `letters` is an English alphabet and has
+neither, and Rumi's has 27 letters. Same rules as the rest — same 1024 frame, base letter before
+the tilde, top-to-bottom, left-to-right.
+
+### The numbers module
+
+Whit referred to it as though it existed. It did not: 17 modules, none of them numbers, and the
+only Spanish numerals in the file were a ten-entry lookup used to speak her age. `Los números`
+runs 1 to 10 — zero is left out because every card is built on countable objects and you cannot
+put a finger on nothing. `diez` is two glyphs and is traced as two marks in one go, which is how
+it is written. **The thing counted changes on every card and the number does not,** which is the
+actual maths, and above five the row wraps in fives.
+
 **There is no `index.html` and that is deliberate.** Root `CLAUDE.md`, ratified 2026-08-17: a file
 is named `index.html` only when a web server requires that exact name to resolve a live URL. Here
 one does not, because `vercel.json` rewrites `/` to the app. Whit finds files with Spotlight, which
@@ -65,15 +123,18 @@ succeed. The gate asserts this directly — zero subresource references — beca
 direction of drift is to split the audio out into files, and that would break the app in exactly
 the conditions it exists to survive.
 
-The cost is honest and worth stating: the page is 8.4 MB and the first load is not fast. About
-1.9 MB of that is trailing edge-tts silence — `npm run rumi:trim-audit` measures it — left in
+The cost is honest and worth stating: the page is 8.5 MB and the first load is not fast. Tracing
+added 50 KB to that — geometry is tiny — but it also added 52 Spanish strings with no clips yet,
+and recording them will add roughly 1.0 MB when somebody runs the generator. About
+1.9 MB of the current page is trailing edge-tts silence — `npm run rumi:trim-audit` measures it — left in
 place deliberately: cutting it changes the app's pacing (clip end drives every completion
 callback) and no trim ships without a human listening to a sample first.
 
 ## The gates, and the one assertion that matters
 
-`npm run check` — 20 assertions, runs in about a second, needs nothing installed.
-`npm run test:rumi` — 72 more, over the real shipped corpus, also with no network.
+`npm run check` — 22 assertions, runs in about a second, needs nothing installed.
+`npm run test:rumi` — 144 more, over the real shipped corpus, also with no network. 140 of them
+when the `letters` sibling checkout is not on disk, and it says so out loud.
 
 Most of it is ordinary: the file is present, the inline scripts parse, the stylesheet is non-empty,
 `vercel.json` parses and its rewrites resolve to a real file with an extensionless destination

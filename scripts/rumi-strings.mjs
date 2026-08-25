@@ -104,6 +104,39 @@ export function expand(template) {
   return [base.replace(/\{A\}/g, 'a'), base.replace(/\{A\}/g, 'o')];
 }
 
+/** Pull the stroke-geometry block out of the HTML and evaluate it.
+ *
+ * TRACE1, 2026-08-24. The geometry itself is copied from letters/letters-app.html, which is
+ * its author; the `cue` on each stroke is NOT copied, it is Spanish and it belongs to this
+ * app. Those cues are spoken while her hand moves, so they are part of the Spanish corpus and
+ * have to be recorded in es-ES-XimenaNeural like everything else. They are enumerated here so
+ * that `npm run rumi:audio && npm run rumi:embed` picks them up with no further edit.
+ *
+ * Returns {} rather than throwing if the block is absent: an app with no glyphs still runs,
+ * it just never offers a trace, and the audio pipeline should not die over it. */
+export function readGlyphs(html) {
+  const m = html.match(/<script id="rumiGlyphs">([\s\S]*?)<\/script>/);
+  if (!m) return {};
+  const w = {};
+  // eslint-disable-next-line no-new-func
+  new Function('window', m[1])(w);
+  return (w.RUMI_GLYPHS && typeof w.RUMI_GLYPHS === 'object') ? w.RUMI_GLYPHS : {};
+}
+
+/** Every distinct Spanish stroke cue, deduped, in dataset order. */
+export function collectCues(html) {
+  const glyphs = readGlyphs(html);
+  const out = new Map();
+  for (const key of Object.keys(glyphs)) {
+    for (const s of glyphs[key].strokes || []) {
+      if (!s.cue) continue;
+      const k = normalizeKey(s.cue);
+      if (!out.has(k)) out.set(k, String(s.cue).replace(/\s+/g, ' ').trim());
+    }
+  }
+  return [...out.entries()].map(([key, text]) => ({ key, text }));
+}
+
 /** Every distinct spoken string, in a stable order. */
 export function collect(html) {
   const { modules } = readModules(html);
@@ -130,6 +163,9 @@ export function collect(html) {
     }
   }
   for (const s of FIXED_STRINGS) add(s);
+  // TRACE1: the Spanish stroke cues. They go LAST so every clip that already exists keeps its
+  // position in the list, which makes a --limit run reproducible across this change.
+  for (const it of collectCues(html)) add(it.text);
 
   return [...out.entries()].map(([key, text]) => ({ key, text }));
 }
