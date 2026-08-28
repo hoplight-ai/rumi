@@ -4,6 +4,39 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Rumi — which voice?</title>
+<!-- App metadata. This page is served at https://rumi-rouge.vercel.app/rumi-voice-bakeoff and Whit holds
+     that URL, so it gets the same four things every page here gets: a name, preview text, a
+     preview image and a home-screen icon. It shipped with a <title> and nothing else, which
+     pastes into a text as a bare grey URL and saves to a phone as a blank square.
+
+     og:image is ABSOLUTE. A relative path renders as a blank card in iMessage and reports no
+     error in the console, the network tab or the Vercel log.
+
+     It reuses Rumi's own card and icons on purpose: this is a screen inside Rumi, not a second
+     product, and the icons are what say so. It does NOT reuse Rumi's manifest — that one starts
+     at "/", so installing this page from a home screen would have opened the app instead of the
+     page whose icon was tapped. -->
+<meta name="description" content="Four candidate voices for Rumi, saying the same phrases back to back. Tap any phrase to compare, then pick the one that sounds right.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Voices">
+<link rel="manifest" href="/bakeoff-manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Rumi">
+<meta property="og:url" content="https://rumi-rouge.vercel.app/rumi-voice-bakeoff">
+<meta property="og:title" content="Rumi — which voice?">
+<meta property="og:description" content="Four candidate voices for Rumi, saying the same phrases back to back. Tap any phrase to compare, then pick the one that sounds right.">
+<meta property="og:image" content="https://rumi-rouge.vercel.app/rumi-og-card.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Rumi — which voice?">
+<meta name="twitter:description" content="Four candidate voices for Rumi, saying the same phrases back to back. Tap any phrase to compare, then pick the one that sounds right.">
+<meta name="twitter:image" content="https://rumi-rouge.vercel.app/rumi-og-card.png">
 <style>
   :root{--ink:#1b1233;--paper:#f7f4fb;--card:#fff;--purple:#6c2bd9;--mag:#e0409a}
   *{box-sizing:border-box}
