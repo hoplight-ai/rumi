@@ -67,3 +67,25 @@ jobs:
       - name: 'test: rumi behaviour'
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: node scripts/rumi-unit-test.mjs
+
+      # The gate that actually listens. Added 2026-08-30, after three separate bugs each made
+      # the app COMPLETELY SILENT while both checks above stayed green. They had to: they read
+      # the file, and every clip in the file was perfect. "Does a buffer reach the speakers" is
+      # a property of a running browser, and nothing here was looking at one.
+      #
+      # This is the only step in this workflow that installs anything, and it is a deliberate
+      # exception to the no-dependencies note at the top rather than a drift away from it. The
+      # stated reason this workflow exists is that a silent app "renders a perfect page and
+      # plays silence, the user is five years old, and nothing else in the world will report
+      # it". That is precisely the failure this step catches and the other two cannot.
+      #
+      # --no-save keeps package.json dependency-free, so a fresh clone still runs the first two
+      # gates with no install at all, and scripts/rumi-audio-smoke.mjs prints SKIP and exits 0
+      # when playwright is absent. Observed red against the 2026-08-29 build on three separate
+      # assertions, and green on this one, before this step was committed.
+      - name: 'test: rumi audio (browser)'
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          npm i --no-save playwright
+          npx playwright install --with-deps chromium
+          node scripts/rumi-audio-smoke.mjs

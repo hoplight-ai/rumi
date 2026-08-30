@@ -15,8 +15,9 @@ Vercel generated for this project is the one that counts; do not guess it from t
 | `rumi-espanol-app.html` | the whole app, 8,483,696 bytes |
 | `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
-| `scripts/ci-check.mjs` | the structural gate. 22 assertions, no network, no dependencies |
-| `scripts/rumi-unit-test.mjs` | the behavioural suite. 144 assertions over the real shipped corpus |
+| `scripts/ci-check.mjs` | the structural gate. 34 assertions, no network, no dependencies |
+| `scripts/rumi-unit-test.mjs` | the behavioural suite. 170 assertions over the real shipped corpus |
+| `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. Drives a real browser — see below |
 | `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
 | `.github/workflows/ci.yml` | runs both gates on every push |
 
@@ -34,6 +35,75 @@ npm run rumi:cues       # render the English cues (idle help + phrase glosses)
 npm run rumi:embed      # base64 both banks back into the app file
 npm run rumi:bakeoff    # rebuild the voice comparison page
 ```
+
+## The three ways it went silent (RUMI L5, 2026-08-30)
+
+Whit, on a phone: *"i'm getting no sound in rumi at all."* Both gates were green. Every one of
+the 228 clips was a complete, valid, byte-tiled mp3. The app was silent anyway, and it was not
+one bug — it was three, each of which could silence the app on its own, and each of which
+**survived a reload**. That is why it read as *no sound at all* rather than as a glitch.
+
+**One: the AudioContext was created once and resumed nowhere.** iOS suspends a context whenever
+the app is backgrounded, the iPad locks, a call arrives, or another app takes the audio route —
+and it has a fourth state, `interrupted`, that the old code never tested. After the first such
+interruption every `src.start()` ran against a dead context: no sound, no exception, no fallback
+to the device voice, and `onended` never fired — so the completion callbacks carrying the English
+sandwich and the tracing stroke instruction were stranded too. The overlay that owned the only
+`resume()` was `display:none` by then, so nothing short of a reload could revive it. There is now
+exactly one place a context is made or revived, `ensureAudio()`, and a capture-phase `pointerdown`
+listener calls it on every tap — the gesture iOS requires is always already happening.
+
+`ensureAudio()` returns a **promise**, and that is load-bearing. `resume()` is asynchronous, and
+the tap that revives the context is usually the same tap that asks for a clip; reading
+`actx.state` synchronously after it still sees `suspended`, concludes there is no clip, and falls
+through to a device voice that on this iPad does not exist. The first draft of the fix did
+exactly that and was still silent. The browser gate caught it.
+
+**Two: Web Audio obeys the hardware ring/silent switch on iOS.** Everything audible in Rumi is
+Web Audio, and Web Audio alone plays under the *ambient* audio session, which the switch
+silences. A muted iPad played all 228 clips to nobody. The fix is an element, not code:
+`#silentLoop` is a quarter-second of true silence on loop, and an `<audio>` element that is
+genuinely playing promotes the page to the *playback* session, which the switch does not touch.
+It starts on the unlock tap and is paused whenever the app is muted or backgrounded, so the
+session is held only while Rumi has something to say.
+
+That workaround deliberately takes the iPad's own switch away from her, so the app owes a
+grown-up a way back: **the 🔊 control in the header of every screen**, which Whit asked for in the
+same breath. Three states — 🔊 on, 🔇 off, and 🔈 on a pink ground meaning *the audio route is
+not open*, which is the diagnosis no build ever showed anyone. In that third state the tap
+**revives rather than toggles**, because a button reporting that sound is broken must not also
+mean "mute". Muting is a **gain change**, never a refusal to play: the buffer still runs, so
+`onended` still fires and the sandwich, the stroke instruction and the auto-advance keep exactly
+the timing they have unmuted. A mute that changed the app's timing would be a second bug.
+
+**Three: turtle bypasses the clips by design, so on a voiceless device it is silence.** Turtle
+wants one utterance per word with a real gap, which only `speechSynthesis` can do — and the
+speed is persisted. One tap of 🐢 by a five-year-old muted the app across reloads, with nothing
+on screen to say why. Turtle is now disabled when no device voice can deliver it, and
+`effectiveSpeed()` degrades a *stored* turtle to walk at speaking time. That degradation is
+deliberately **non-destructive**: `S.speed` is left alone, because voices load asynchronously and
+a device whose Spanish voice arrives late should get its turtle back rather than have the setting
+quietly rewritten underneath it at boot.
+
+### The gate that actually listens
+
+`npm run test:audio`. The two existing gates could not have caught any of this and never could:
+they read the file, and the file was perfect. *Does a buffer reach the speakers* is a property of
+a running browser.
+
+So this one drives a real Chromium and hooks `AudioContext`, asserting on audio that actually
+starts and on the gain it starts behind — a clip playing at gain 0 is silence and must not read
+as sound. It runs on a machine with **no speech-synthesis voices at all**, which is not a
+limitation of the test but the entire point: it is the iPad whose Spanish voice is absent, the
+device the clips exist for.
+
+Every case in it is a regression test. All three bugs above were observed red against the
+2026-08-29 build and green against this one before the file was committed — *a gate nobody has
+seen fail is a gate nobody knows is connected.* Playwright is the one dependency in this repo and
+is deliberately optional: absent, the script prints `SKIP` and exits 0, so a fresh clone still
+runs the other two gates with no install. A skip is not a pass — nothing was played, so the app
+may already be silent. In CI it is installed with `--no-save`, which keeps `package.json`
+dependency-free. `RUMI_CHROMIUM` points it at a pre-installed browser where one exists.
 
 **The English policy, as amended (RUMI L4, 2026-08-22).** RUMI3 ruled that English is spoken only
 on idle and only on a correct HEAR/FIND answer, so that she hears Spanish first. Whit amended it:
