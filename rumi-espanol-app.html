@@ -107,6 +107,16 @@
   /* Audio exists but is not running — an iOS interruption we have not managed to revive.
      It is a prompt, not decoration: tapping it is what wakes the context back up. */
   .mute.blocked{background:#ffd0d0;box-shadow:inset 0 -3px 0 #d98080}
+  /* RUMI L6: the diagnostics readout. Monospace and selectable on purpose — its whole job is
+     to survive being screenshotted on a phone and read back by someone who is not here. */
+  #diag{
+    margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;
+    background:#1b1233;color:#e8e2ff;border-radius:14px;padding:14px 16px;
+    -webkit-user-select:text;user-select:text
+  }
+  #diag .bad{color:#ff9d9d;font-weight:700}
+  #diag .good{color:#8ef0b8}
   /* The module bar has no .spacer, so the control claims the gap itself and lands hard right
      — level with the ← it mirrors, rather than crowding the module name. */
   .mtop .mute{margin-left:auto}
@@ -496,6 +506,22 @@
         <button class="btn ghost" id="testVoice">Test the voice</button>
       </div>
       <p style="margin:12px 0 0" id="voiceInfo"></p>
+    </div>
+
+    <!-- RUMI L6, 2026-08-30. Every round of the "no sound at all" hunt was a guess, because the
+         app runs on a phone and nothing it knows about itself was ever on screen. This is that
+         readout. It answers, in order, the questions the hunt kept having to assume:
+         which build is this, did the clips arrive, is the audio route open, is anything muted.
+         It is in Grown-ups because it is for a grown-up, one tap from home. -->
+    <div class="block">
+      <h3>Is the sound working?</h3>
+      <p>If Rumi is silent, screenshot this. It says which build you are on and where the sound
+         stopped.</p>
+      <pre id="diag">…</pre>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn ghost" id="diagCopy">Copy</button>
+        <button class="btn ghost" id="diagRefresh">Refresh</button>
+      </div>
     </div>
 
     <div class="block">
@@ -1093,6 +1119,11 @@ const MODULES = [
    {t:"num", trace:"10", count:10, es:"diez",   en:"ten",   emo:"🐧"},
  ]},
 ];
+
+/* RUMI L6: replaced at deploy time by scripts/rumi-stamp.mjs from the real commit. Left as
+   the literal placeholder in the repo on purpose — an unstamped file says "dev", which is the
+   truth, rather than a stale hash that would lie about which build is on the phone. */
+const BUILD = "__RUMI_BUILD__";
 
 /* ================= state ================= */
 const DEF = {name:"", age:5, gender:"f", speed:"walk", muted:false, stars:{}};
@@ -2617,6 +2648,45 @@ function syncSpeedButtons(){
 }
 
 /* ================= settings ================= */
+/* ================= diagnostics (RUMI L6) =================
+   Reports what the app can actually observe about its own audio, in the order the failures
+   happen: build -> clips present -> route open -> not muted -> a voice for turtle. Every line
+   is a fact read at the moment you look, never a cached one. */
+function renderDiag(){
+  const el = document.getElementById("diag");
+  if(!el) return;
+  const loop = document.getElementById("silentLoop");
+  const vs = ("speechSynthesis" in window) ? speechSynthesis.getVoices() : [];
+  const es = vs.filter(v => /^es/i.test(v.lang));
+  const ctxState = actx ? actx.state : "never opened";
+  const gain = masterGain ? masterGain.gain.value : (actx ? 1 : "—");
+
+  /* The verdict line first, because it is the only line most people need. */
+  let verdict, cls;
+  if(S.muted){ verdict = "MUTED IN APP — tap the speaker button"; cls = "bad"; }
+  else if(!CLIP_COUNT){ verdict = "NO CLIPS LOADED — the page did not finish downloading"; cls = "bad"; }
+  else if(!actx){ verdict = "AUDIO NEVER OPENED — tap ¡Vamos! on the start screen"; cls = "bad"; }
+  else if(actx.state !== "running"){ verdict = "AUDIO ASLEEP (" + actx.state + ") — tap anything"; cls = "bad"; }
+  else if(gain === 0){ verdict = "OUTPUT AT ZERO"; cls = "bad"; }
+  else { verdict = "APP SIDE LOOKS FINE — check the phone: silent switch, volume, Bluetooth"; cls = "good"; }
+
+  const rows = [
+    ["build", BUILD],
+    ["clips", CLIP_COUNT + " es  /  " + CUE_COUNT + " en"],
+    ["audio route", ctxState + (actx && actx.sampleRate ? "  " + Math.round(actx.sampleRate) + "Hz" : "")],
+    ["output gain", String(gain)],
+    ["muted in app", S.muted ? "YES" : "no"],
+    ["silent loop", loop ? (loop.paused ? "paused" : "playing") : "absent"],
+    ["device voices", vs.length + " total  /  " + es.length + " Spanish"],
+    ["speed", S.speed + (S.speed !== effectiveSpeed() ? "  -> " + effectiveSpeed() + " (no voice for turtle)" : "")],
+    ["page", Math.round((document.documentElement.outerHTML.length) / 1024) + "KB in DOM"],
+  ];
+  const pad = 14;
+  el.innerHTML = '<span class="' + cls + '">' + verdict.replace(/&/g,"&amp;").replace(/</g,"&lt;") + "</span>\n\n" +
+    rows.map(r => (r[0] + " ".repeat(Math.max(1, pad - r[0].length)) + r[1])
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;")).join("\n");
+}
+
 function buildSettings(){
   const sel = document.getElementById("kidAge");
   if(!sel.options.length){
@@ -2636,6 +2706,7 @@ function buildSettings(){
   document.getElementById("progLine").textContent =
     done + " of " + total + " cards have a star. " + MODULES.length + " modules.";
 
+  renderDiag();
   buildPhrasebook();
 }
 document.getElementById("saveKid").onclick = () => {
@@ -2657,6 +2728,21 @@ document.getElementById("resetProg").onclick = () => {
   S.stars = {}; save(); buildSettings(); renderHome();
 };
 document.getElementById("printPb").onclick = () => window.print();
+document.getElementById("diagRefresh").onclick = () => { ensureAudio(); renderDiag(); };
+document.getElementById("diagCopy").onclick = () => {
+  const t = document.getElementById("diag").textContent;
+  const b = document.getElementById("diagCopy");
+  const done = () => { b.textContent = "Copied ✓"; setTimeout(() => { b.textContent = "Copy"; }, 1400); };
+  /* execCommand is the fallback that still works where the clipboard API needs permission */
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done, () => {});
+  }else{
+    const ta = document.createElement("textarea");
+    ta.value = t; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); done(); }catch(e){}
+    document.body.removeChild(ta);
+  }
+};
 
 function buildPhrasebook(){
   const wrap = document.getElementById("pbWrap");
@@ -2703,6 +2789,7 @@ document.getElementById("unlock").onclick = unlock;
    showed anyone. In that third state the tap REVIVES rather than toggles: the button is
    reporting that sound is broken, so making it mean "mute" would be a trap. */
 function syncMuteButton(){
+  renderDiag();   /* the readout is only useful if it is never stale */
   const blocked = !audioReady();
   document.querySelectorAll(".mute").forEach(b => {
     b.textContent = S.muted ? "🔇" : (blocked ? "🔈" : "🔊");
