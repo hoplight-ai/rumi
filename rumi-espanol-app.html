@@ -96,6 +96,20 @@
     width:44px;height:44px;border-radius:14px;border:none;background:#ffffffcc;
     font-size:20px;box-shadow:var(--shadow);cursor:pointer
   }
+  /* RUMI L5: the mute control. Same 44px target as the gear and it sits beside it, in the
+     header rather than the bottom bar — reachable by a grown-up on every screen without
+     landing under a five-year-old's thumb where the ▶︎ and the speeds live. */
+  .mute{
+    width:44px;height:44px;border-radius:14px;border:none;background:#ffffffcc;
+    font-size:20px;box-shadow:var(--shadow);cursor:pointer;font-family:inherit
+  }
+  .mute.off{background:var(--gold);box-shadow:inset 0 -3px 0 #d99f14}
+  /* Audio exists but is not running — an iOS interruption we have not managed to revive.
+     It is a prompt, not decoration: tapping it is what wakes the context back up. */
+  .mute.blocked{background:#ffd0d0;box-shadow:inset 0 -3px 0 #d98080}
+  /* The module bar has no .spacer, so the control claims the gap itself and lands hard right
+     — level with the ← it mirrors, rather than crowding the module name. */
+  .mtop .mute{margin-left:auto}
 
   /* ---------- home grid ---------- */
   .grid{
@@ -229,6 +243,8 @@
   }
   .speeds{display:flex;gap:6px;background:#ffffffcc;padding:6px;border-radius:20px;box-shadow:var(--shadow)}
   .sp{width:52px;height:44px;border:none;border-radius:14px;background:transparent;font-size:24px;cursor:pointer}
+  /* Turtle is disabled, not hidden, when no device voice can deliver it — see turtleUsable(). */
+  .sp[disabled]{opacity:.3;cursor:default}
   .sp.on{background:var(--gold);box-shadow:inset 0 -3px 0 #d99f14}
   /* RUMI3: the advance control is a GLYPH. Its two states used to be "SIGUIENTE →" and
      "A CASA 🏠", which differ only in words she cannot read. They now differ by glyph AND
@@ -374,6 +390,17 @@
 </head>
 <body>
 
+<!-- RUMI L5: the iOS mute-switch workaround, and it is this element rather than any code.
+     Web Audio alone plays under the "ambient" audio session, which the hardware ring/silent
+     switch silences — so on a muted iPad every recorded clip played to nobody while the app
+     showed no error at all. An <audio> element that is genuinely playing promotes the page
+     to the "playback" session, and the Web Audio graph follows it and stops obeying the
+     switch. The payload is a quarter-second of true silence on loop; it is never heard.
+     It starts on the unlock tap and is paused whenever the app is muted or backgrounded, so
+     the session is only held while Rumi actually has something to say. -->
+<audio id="silentLoop" loop playsinline preload="auto" aria-hidden="true"
+       src="data:audio/wav;base64,UklGRvQHAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YdAHAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA=="></audio>
+
 <!-- ============ UNLOCK ============ -->
 <div id="unlock">
   <svg class="rumi big" viewBox="0 0 100 100" aria-hidden="true">
@@ -420,6 +447,7 @@
     <svg class="rumi" viewBox="0 0 100 100"><use href="#rumiCat"/></svg>
     <div class="title">Rumi Español<small id="homeSub">para ti · 5 años</small></div>
     <div class="spacer"></div>
+    <button class="mute" aria-label="Sound on — tap to mute">🔊</button>
     <button class="gear" id="toSettings" aria-label="Grown-ups">⚙️</button>
   </header>
   <div class="grid" id="grid"></div>
@@ -430,6 +458,7 @@
   <div class="mtop">
     <button class="back" id="toHome" aria-label="Back">←</button>
     <div class="mname" id="modName">—<small id="modEn"></small></div>
+    <button class="mute" aria-label="Sound on — tap to mute">🔊</button>
   </div>
   <div class="dots" id="dots"></div>
   <div class="stage" id="stage"></div>
@@ -1066,7 +1095,7 @@ const MODULES = [
 ];
 
 /* ================= state ================= */
-const DEF = {name:"", age:5, gender:"f", speed:"walk", stars:{}};
+const DEF = {name:"", age:5, gender:"f", speed:"walk", muted:false, stars:{}};
 let S = load();
 
 function load(){
@@ -1123,13 +1152,101 @@ const CUE_COUNT = Object.keys(CUES).length;
    Restoring true natural pace would need 1.54 and about seven semitones, which would turn a
    woman's voice into a child's. Walk is the default and carries no resampling at all. */
 const RABBIT_PLAYBACK = 1.25;
-let actx = null, clipSrc = null;
+let actx = null, clipSrc = null, masterGain = null;
 const clipCache = new Map();
+
+/* ================= the audio lifecycle (RUMI L5, 2026-08-30) =================
+   Whit, 2026-08-30: "i'm getting no sound in rumi at all."
+
+   It was not one bug. Three things could each silence the app completely, and each of them
+   survived a reload, which is why it read as "no sound AT ALL" rather than as a glitch.
+
+   ONE. The context was created once, inside unlock(), and resumed nowhere else. iOS suspends
+   an AudioContext whenever the app is backgrounded, the iPad locks, a call arrives, or any
+   other app takes the audio route — and it also has a fourth state, "interrupted", that the
+   old code did not test for. After the first such interruption every src.start() ran against
+   a dead context: no sound, no exception, no fallback to the device voice, and onended never
+   fired — so the completion callbacks that carry the English sandwich and the tracing stroke
+   instruction never ran either. The overlay that owned the only resume() was display:none by
+   then, so nothing could revive it short of a reload. ensureAudio() is now the single place a
+   context is made or revived, and every tap calls it.
+
+   TWO. Web Audio obeys the hardware ring/silent switch on iOS. See #silentLoop in the markup.
+
+   THREE. Turtle bypasses the recorded clips by design, so on a device with no Spanish voice
+   it is silent — and the speed is persisted, so one tap of 🐢 muted the app across reloads.
+   See turtleUsable().
+
+   audioReady() is the honest test: a context that exists but is not running is not audio.
+   Everything that plays a buffer checks it and falls through to the device voice instead of
+   playing into a closed route. */
+function audioReady(){ return !!actx && actx.state === "running"; }
+
+/* Create-or-revive. Safe to call at any time, on every tap, however many times. resume()
+   only counts inside a user gesture on iOS, which is why the global pointerdown listener at
+   the foot of this file calls it rather than any one button owning the job. */
+function ensureAudio(){
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return Promise.resolve(false);
+    if(!actx){
+      actx = new AC();
+      actx.onstatechange = syncMuteButton;
+      /* Not superstition: on older iOS resume() alone leaves the output route closed until
+         something has actually been played through it. */
+      const s0 = actx.createBufferSource();
+      s0.buffer = actx.createBuffer(1, 1, 22050);
+      s0.connect(actx.destination);
+      s0.start(0);
+    }
+    if(audioReady()) return Promise.resolve(true);
+    if(!actx.resume) return Promise.resolve(false);
+    /* resume() is ASYNCHRONOUS, and that matters far more than it looks. The tap that revives
+       the context is usually the very same tap that asks for a clip, so anything reading
+       actx.state synchronously after this still sees "suspended", decides it has no clip, and
+       falls through to a device voice that on the iPad in question does not exist — silence,
+       from the fix meant to end silence. Caught by scripts/rumi-audio-smoke.mjs, which is the
+       entire argument for that file existing. So ensureAudio() reports a PROMISE of a working
+       route, and speak() waits on it before it concludes anything. */
+    const r = actx.resume();
+    const p = (r && r.then) ? r : Promise.resolve();
+    return p.then(() => { syncMuteButton(); return audioReady(); }, () => false);
+  }catch(e){ actx = null; return Promise.resolve(false); }
+}
+
+/* Every clip and every cue plays through this one gain node, so muting is a single value
+   rather than a branch at each call site. Muting by gain and not by "don't play" is
+   deliberate: the buffer still runs, so onended still fires on schedule and the completion
+   chain behind it — sandwich, stroke instruction, auto-advance — behaves identically muted
+   and unmuted. A mute that changed the app's timing would be a second bug. */
+function outputNode(){
+  if(!actx) return null;
+  if(!masterGain || masterGain.context !== actx){
+    masterGain = actx.createGain();
+    masterGain.connect(actx.destination);
+  }
+  masterGain.gain.value = S.muted ? 0 : 1;
+  return masterGain;
+}
+
+/* The silent loop that holds the iOS playback audio session. Held only while unmuted and
+   visible — see #silentLoop. */
+function keepaliveOn(){
+  const el = document.getElementById("silentLoop");
+  if(!el || S.muted) return;
+  try{ const r = el.play(); if(r && r.catch) r.catch(() => {}); }catch(e){}
+}
+function keepaliveOff(){
+  const el = document.getElementById("silentLoop");
+  if(el){ try{ el.pause(); }catch(e){} }
+}
 
 function clipKey(s){ return String(s).replace(/\s+/g, " ").trim().toLowerCase(); }
 
 function clipFor(text){
-  if(!CLIP_COUNT || !actx) return null;
+  /* audioReady(), not just actx: a suspended context decodes happily and then plays to
+     nobody. Falling through to the device voice is worse audio but it is audible. */
+  if(!CLIP_COUNT || !audioReady()) return null;
   const k = clipKey(text);
   return Object.prototype.hasOwnProperty.call(CLIPS, k) ? k : null;
 }
@@ -1159,14 +1276,14 @@ function decodeClip(k, source, ns){
 /* Play one English help line. Never queues behind Spanish and never interrupts it — the
    caller only reaches here when nothing has happened for IDLE_MS and Rumi is silent. */
 function playCue(key){
-  if(!actx || !CUE_COUNT) return;
+  if(!audioReady() || !CUE_COUNT) return;
   if(!Object.prototype.hasOwnProperty.call(CUES, key)) return;
   decodeClip(key, CUES, "en").then(buf => {
     if(speaking) return;              /* Spanish started while we were decoding: yield to it */
     stopClip();
     const src = actx.createBufferSource();
     src.buffer = buf;
-    src.connect(actx.destination);
+    src.connect(outputNode());
     src.onended = () => { if(clipSrc === src) clipSrc = null; };
     clipSrc = src;
     src.start(0);
@@ -1198,8 +1315,28 @@ function chooseVoice(){
   const nice = pool.find(v => /Mónica|Monica|Marisol|Jorge|Paulina|Enhanced|Premium/i.test(v.name));
   return nice || pool[0];
 }
+/* RUMI L5. Turtle is the one speed with no recorded clip — it wants one utterance per word
+   with a real gap, which only speechSynthesis can do. On a device with no Spanish voice that
+   makes turtle SILENT, and because the speed is persisted, one tap of 🐢 by a five-year-old
+   muted the app across reloads with no way to tell what had happened. So turtle is only
+   offered when a device voice can actually deliver it. With no clips at all there is nothing
+   to lose by trying, so it stays live. */
+function turtleUsable(){ return !!voice || !CLIP_COUNT; }
+
+/* The speed to actually SPEAK at, which is not always the speed she chose. Turtle degrades
+   to walk whenever no device voice can deliver it, so the stored setting can never make the
+   app silent. Deliberately non-destructive — S.speed is left alone, because voices load
+   asynchronously and a device whose Spanish voice arrives late gets its turtle back rather
+   than having had the setting quietly rewritten underneath it at boot. */
+function effectiveSpeed(){
+  return (S.speed === "turtle" && !turtleUsable()) ? "walk" : S.speed;
+}
+
 function refreshVoice(){
   voice = chooseVoice();
+  /* Voices arrive asynchronously, so this runs again when they land — and it is what repairs
+     a turtle already latched into localStorage on a device that cannot speak it. */
+  syncSpeedButtons();
   const info = document.getElementById("voiceInfo");
   const warn = document.getElementById("voiceWarn");
   const vs = speechSynthesis.getVoices().filter(v => /^es/i.test(v.lang));
@@ -1260,30 +1397,57 @@ function speak(text, done){
   /* A recorded clip if we have one for this exact line and we are not on turtle.
      Every failure here — no key, decode error, no AudioContext — lands on speakSynth,
      so the worst case is the behaviour this app already shipped with. */
-  const k = (S.speed === "turtle") ? null : clipFor(text);
-  if(k){
-    decodeClip(k).then(buf => {
-      if(!speaking) return;   /* a stopSpeech() landed while the decode was in flight */
+  const gen = speechGen;
+  const sp = effectiveSpeed();
+  /* Turtle has no clip by design — it wants one utterance per word — so it goes straight to
+     the device voice. Everything else waits for the audio route to be open before concluding
+     it has no clip: every utterance is downstream of a tap, so this is inside a user gesture
+     and iOS will honour the resume. This is what makes an interruption cost one beat rather
+     than every card until a reload. */
+  if(sp === "turtle" || !CLIP_COUNT){ speakSynth(text, finish); return; }
+
+  ensureAudio().then(() => {
+    if(!speaking || gen !== speechGen) return;
+    const k = clipFor(text);
+    if(!k){ speakSynth(text, finish); return; }
+    return decodeClip(k).then(buf => {
+      if(!speaking || gen !== speechGen) return;   /* a stopSpeech() landed mid-decode */
       stopClip();
       const src = actx.createBufferSource();
       src.buffer = buf;
-      src.playbackRate.value = (S.speed === "rabbit") ? RABBIT_PLAYBACK : 1;
-      src.connect(actx.destination);
-      src.onended = () => { if(clipSrc === src) clipSrc = null; finish(); };
+      const rate = (sp === "rabbit") ? RABBIT_PLAYBACK : 1;
+      src.playbackRate.value = rate;
+      src.connect(outputNode());
+      /* The watchdog. onended is the only thing that calls finish(), and a context that is
+         suspended or interrupted mid-clip never fires it — which used to strand `done` and
+         with it the English sandwich and the tracing stroke instruction. The card must go on
+         even when the audio route dies underneath it, so a late timer finishes the job. It
+         checks the generation because stopClip() nulls onended but cannot cancel a timer,
+         and a cancelled utterance must never run its completion. */
+      let guard = setTimeout(() => {
+        guard = null;
+        if(gen !== speechGen) return;
+        if(clipSrc === src) clipSrc = null;
+        finish();
+      }, (buf.duration / rate) * 1000 + 1200);
+      src.onended = () => {
+        if(guard){ clearTimeout(guard); guard = null; }
+        if(clipSrc === src) clipSrc = null;
+        finish();
+      };
       clipSrc = src;
       src.start(0);
-    }).catch(() => { if(speaking) speakSynth(text, finish); });
-    return;
-  }
-  speakSynth(text, finish);
+    });
+  }).catch(() => { if(speaking && gen === speechGen) speakSynth(text, finish); });
 }
 
 /* The original speechSynthesis path, unchanged apart from having its bookkeeping
    (stopSpeech, the button class, the speaking flag) hoisted into speak() above. */
 function speakSynth(text, finish){
   if(!("speechSynthesis" in window)){ finish(); return; }
+  const sp = effectiveSpeed();
 
-  if(S.speed === "turtle"){
+  if(sp === "turtle"){
     const words = String(text).split(/\s+/).filter(Boolean);
     let i = 0;
     const step = () => {
@@ -1297,7 +1461,7 @@ function speakSynth(text, finish){
     };
     step();
   }else{
-    const u = mkUtt(text, RATE[S.speed] || 0.85);
+    const u = mkUtt(text, RATE[sp] || 0.85);
     u.onend = finish;
     u.onerror = finish;
     chain.push(u);
@@ -1310,7 +1474,9 @@ function mkUtt(t, rate){
   u.lang = (voice && voice.lang) || "es-ES";
   u.rate = rate;
   u.pitch = 1.08;
-  u.volume = 1;
+  /* Muted by volume, not by refusing to speak: the utterance still runs, so onend still
+     fires and the turtle word-chain and every completion behind it keep their timing. */
+  u.volume = S.muted ? 0 : 1;
   return u;
 }
 
@@ -1564,7 +1730,7 @@ function glossKey(en){
 /* A gloss key only counts if the clip is really in the bank and audio is really open —
    a miss must degrade to plain Spanish, never to a silent gap in the sandwich. */
 function reachableGlossKey(en){
-  if(!actx || !CUE_COUNT) return null;
+  if(!audioReady() || !CUE_COUNT) return null;
   const k = glossKey(en);
   return (k && Object.prototype.hasOwnProperty.call(CUES, k)) ? k : null;
 }
@@ -1584,13 +1750,13 @@ const GLOSS_GAP_MS = 400;
    a stale decode can never talk over whatever owns the stage now. */
 function playCueDone(key, done){
   const gen = speechGen;
-  if(!actx || !CUE_COUNT || !Object.prototype.hasOwnProperty.call(CUES, key)){ if(done) done(); return; }
+  if(!audioReady() || !CUE_COUNT || !Object.prototype.hasOwnProperty.call(CUES, key)){ if(done) done(); return; }
   decodeClip(key, CUES, "en").then(buf => {
     if(gen !== speechGen || speaking) return;
     stopClip();
     const src = actx.createBufferSource();
     src.buffer = buf;
-    src.connect(actx.destination);
+    src.connect(outputNode());
     src.onended = () => { if(clipSrc === src) clipSrc = null; if(done) done(); };
     clipSrc = src;
     src.start(0);
@@ -2437,11 +2603,15 @@ document.querySelectorAll(".sp").forEach(b => {
     b.classList.add("on");
     S.speed = b.dataset.speed;
     save();
+    syncSpeedButtons();
     playCard();
   };
 });
 function syncSpeedButtons(){
+  const turtleOk = turtleUsable();
   document.querySelectorAll(".sp").forEach(b => {
+    const isTurtle = b.dataset.speed === "turtle";
+    b.disabled = isTurtle && !turtleOk;
     b.classList.toggle("on", b.dataset.speed === S.speed);
   });
 }
@@ -2505,42 +2675,84 @@ function buildPhrasebook(){
   wrap.innerHTML = html;
 }
 
-/* ================= unlock (iOS needs a gesture before audio) ================= */
+/* ================= unlock (iOS needs a gesture before audio) =================
+   This used to be the ONLY place an AudioContext was ever created or resumed, which is what
+   made a single iOS interruption permanent — see the audio lifecycle block above. It is now
+   just the first caller of ensureAudio() like any other tap; the difference is that it is
+   also where the silent loop starts, because starting media needs a real gesture too. */
 function unlock(){
   try{
     const u = new SpeechSynthesisUtterance(" ");
     u.volume = 0;
     speechSynthesis.speak(u);
   }catch(e){}
-  /* Same gesture, second audio system. iOS hands out every AudioContext suspended and
-     resume() only counts inside a user gesture, so this button is the one chance to open
-     it. The silent one-sample buffer is not superstition: on older iOS resume() alone
-     leaves the output route closed until something has actually been played. */
-  try{
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if(AC && !actx){
-      actx = new AC();
-      if(actx.state === "suspended" && actx.resume) actx.resume();
-      const s = actx.createBufferSource();
-      s.buffer = actx.createBuffer(1, 1, 22050);
-      s.connect(actx.destination);
-      s.start(0);
-    }else if(actx && actx.state === "suspended" && actx.resume){
-      actx.resume();
-    }
-  }catch(e){ actx = null; }
+  ensureAudio();
+  keepaliveOn();
   refreshVoice();
+  syncMuteButton();
   document.getElementById("unlock").style.display = "none";
 }
 document.getElementById("unlockBtn").onclick = unlock;
 document.getElementById("unlock").onclick = unlock;
 
+/* ================= mute (RUMI L5) =================
+   Whit asked for this in the same breath as the mute-switch workaround, and the pairing is
+   the point: #silentLoop deliberately takes the iPad's hardware switch away from her, so the
+   app owes a grown-up a way back. One control, three states — 🔊 on, 🔇 off, and 🔈 on a
+   pink ground for "the audio route is not open", which is the diagnosis the old build never
+   showed anyone. In that third state the tap REVIVES rather than toggles: the button is
+   reporting that sound is broken, so making it mean "mute" would be a trap. */
+function syncMuteButton(){
+  const blocked = !audioReady();
+  document.querySelectorAll(".mute").forEach(b => {
+    b.textContent = S.muted ? "🔇" : (blocked ? "🔈" : "🔊");
+    b.classList.toggle("off", !!S.muted);
+    b.classList.toggle("blocked", blocked && !S.muted);
+    b.setAttribute("aria-pressed", S.muted ? "true" : "false");
+    b.setAttribute("aria-label",
+      S.muted ? "Sound off — tap for sound"
+              : (blocked ? "Sound asleep — tap to wake it up" : "Sound on — tap to mute"));
+  });
+}
+
+function toggleMute(){
+  if(!audioReady() && !S.muted){ ensureAudio(); syncMuteButton(); return; }
+  S.muted = !S.muted;
+  save();
+  if(masterGain) masterGain.gain.value = S.muted ? 0 : 1;
+  if(S.muted){ stopSpeech(); keepaliveOff(); }
+  else { ensureAudio(); keepaliveOn(); }
+  syncMuteButton();
+}
+document.querySelectorAll(".mute").forEach(b => { b.onclick = toggleMute; });
+
 /* ================= boot ================= */
 syncSpeedButtons();
 renderHome();
 refreshVoice();
+syncMuteButton();
 setTimeout(refreshVoice, 600);
-document.addEventListener("visibilitychange", () => { if(document.hidden) stopSpeech(); });
+
+/* RUMI L5. iOS only honours resume() inside a user gesture, and every single thing in this
+   app is a tap — so the gesture we need is always already happening. Capture phase and
+   passive, so it runs before the button's own handler and never delays a touch. This one
+   listener is what makes an interruption cost nothing: she taps the next card and the audio
+   is simply back. */
+document.addEventListener("pointerdown", () => {
+  ensureAudio();
+  keepaliveOn();
+}, {capture:true, passive:true});
+
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){
+    stopSpeech();
+    keepaliveOff();   /* don't hold the playback session while she is somewhere else */
+  }else{
+    ensureAudio();
+    keepaliveOn();
+    syncMuteButton();
+  }
+});
 </script>
 </body>
 </html>

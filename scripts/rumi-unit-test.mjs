@@ -94,11 +94,79 @@ if (unenumerated.length) fails.push(`  unenumerated: ${unenumerated.join(' | ')}
 
 /* ---- 6. the fallback path is intact. A clip miss must never be fatal. ---- */
 ok('speakSynth still exists', html.includes('function speakSynth(text, finish)'));
-ok('speak falls through to speakSynth', /speakSynth\(text, finish\);\s*\n\}/.test(html));
-ok('a decode failure falls back', html.includes('.catch(() => { if(speaking) speakSynth(text, finish); })'));
-ok('turtle speed never uses a clip', html.includes('(S.speed === "turtle") ? null : clipFor(text)'));
+/* Three ways in, and all three must stay: turtle, a clip the bank does not have, and a
+   decode or a route that failed. A clip miss has never been allowed to be fatal. */
+ok('speak falls through to speakSynth on a clip miss',
+   /if\(!k\)\{ speakSynth\(text, finish\); return; \}/.test(html));
+ok('a decode failure falls back',
+   html.includes('.catch(() => { if(speaking && gen === speechGen) speakSynth(text, finish); })'));
+ok('turtle speed never uses a clip',
+   html.includes('if(sp === "turtle" || !CLIP_COUNT){ speakSynth(text, finish); return; }'));
 ok('stopSpeech stops a playing clip', /function stopSpeech\(\)\{[\s\S]*?stopClip\(\);/.test(html));
-ok('clipFor refuses without an AudioContext', /function clipFor\(text\)\{[\s\S]*?!actx\) return null;/.test(html));
+ok('clipFor refuses without a RUNNING context',
+   /function clipFor\(text\)\{[\s\S]*?!audioReady\(\)\) return null;/.test(html));
+
+/* ---- 6b. the three ways the app went silent, 2026-08-30, each with a standing gate ----
+
+   Whit: "i'm getting no sound in rumi at all." Three independent causes, all of which
+   survived a reload. Every one of them is a runtime condition that neither this suite nor
+   ci-check could observe directly, so what is held here is the SHAPE of each fix. A
+   structural assertion is a weak proxy for a behavioural one; scripts/rumi-audio-smoke.mjs
+   is the test that actually drives a browser, and it is the one that would have caught
+   these. These exist so that a future edit cannot quietly delete a fix and stay green. */
+
+/* ONE: a suspended or interrupted context must always be revivable. */
+ok('ensureAudio exists', html.includes('function ensureAudio()'));
+ok('audioReady demands a running context',
+   /function audioReady\(\)\{ return !!actx && actx\.state === "running"; \}/.test(html));
+ok('exactly one place constructs an AudioContext',
+   (html.match(/new AC\(\)/g) || []).length === 1);
+ok('the only construction site is ensureAudio',
+   /function ensureAudio\(\)\{[\s\S]*?new AC\(\)/.test(html));
+ok('resume is reachable outside the unlock overlay',
+   /addEventListener\("pointerdown", \(\) => \{\s*ensureAudio\(\);/.test(html));
+ok('coming back into view revives the audio',
+   /addEventListener\("visibilitychange"[\s\S]*?\}else\{\s*ensureAudio\(\);/.test(html));
+ok('speak WAITS for the revived context before deciding it has no clip',
+   /function speak\(text, done\)\{[\s\S]*?ensureAudio\(\)\.then\(/.test(html));
+ok('ensureAudio reports a promise, because resume() is async',
+   /return p\.then\(\(\) => \{ syncMuteButton\(\); return audioReady\(\); \}, \(\) => false\);/.test(html));
+ok('a clip that never ends still finishes the card',
+   /let guard = setTimeout\(\(\) => \{[\s\S]*?finish\(\);/.test(html));
+ok('the watchdog cannot fire for cancelled speech',
+   /guard = null;\s*if\(gen !== speechGen\) return;/.test(html));
+
+/* TWO: the iOS ring/silent switch. The element IS the workaround. */
+ok('the silent keepalive element exists', /<audio id="silentLoop"/.test(html));
+ok('the keepalive loops', /<audio id="silentLoop"[^>]*\sloop\b/.test(html));
+ok('the keepalive is inline, not fullscreen', /<audio id="silentLoop"[^>]*\splaysinline\b/.test(html));
+ok('the keepalive carries real audio data', /<audio id="silentLoop"[\s\S]{0,200}src="data:audio\/wav;base64,[A-Za-z0-9+/=]{200,}"/.test(html));
+ok('the keepalive is released when muted', /function keepaliveOn\(\)\{[\s\S]*?if\(!el \|\| S\.muted\) return;/.test(html));
+ok('the keepalive is released when hidden',
+   /if\(document\.hidden\)\{[\s\S]*?keepaliveOff\(\);/.test(html));
+
+/* THREE: turtle must never be the reason the app is silent. */
+ok('turtleUsable exists', html.includes('function turtleUsable()'));
+ok('turtle degrades to walk rather than to silence',
+   /function effectiveSpeed\(\)\{\s*return \(S\.speed === "turtle" && !turtleUsable\(\)\) \? "walk" : S\.speed;/.test(html));
+ok('the stored speed is never rewritten underneath her',
+   !/S\.speed = "walk"; save\(\)/.test(html));
+ok('an undeliverable turtle button is disabled',
+   /b\.disabled = isTurtle && !turtleOk;/.test(html));
+
+/* The mute control Whit asked for alongside the switch workaround. */
+ok('a mute control exists on both screens', (html.match(/<button class="mute"/g) || []).length === 2);
+ok('mute is persisted', /const DEF = \{[^}]*muted:false/.test(html));
+ok('every clip plays through the master gain',
+   (html.match(/src\.connect\(outputNode\(\)\)/g) || []).length === 3);
+ok('nothing but the gain node and the primer touches destination raw',
+   (html.match(/connect\(actx\.destination\)/g) || []).length === 2);
+/* Muting by gain and by utterance volume — never by refusing to play — is what keeps the
+   completion chain (sandwich, stroke instruction, auto-advance) identical when muted. */
+ok('muting a clip is a gain change', /masterGain\.gain\.value = S\.muted \? 0 : 1;/.test(html));
+ok('muting the device voice is a volume change', /u\.volume = S\.muted \? 0 : 1;/.test(html));
+ok('a blocked mute button revives instead of toggling',
+   /if\(!audioReady\(\) && !S\.muted\)\{ ensureAudio\(\); syncMuteButton\(\); return; \}/.test(html));
 
 /* ---- 7. the embed tag is well-formed whether or not it is filled ---- */
 const tag = html.match(/<script id="rumiClips">([\s\S]*?)<\/script>/);
