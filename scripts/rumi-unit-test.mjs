@@ -228,7 +228,7 @@ ok('grid rows are pinned to max-content, so tiles cannot collapse',
     const make = new Function('MODULES', 'cur', 'fill', `return function buildOptions(c){${src[1]}\n}`);
     const fillStub = (s) => String(s == null ? '' : s).replace(/\{NAME\}/g, '').replace(/\{AGE\}/g, 'cinco')
       .replace(/\{A\}/g, 'a').replace(/\{E\}/g, 'e');
-    let collisions = 0, answerMissing = 0, checked = 0;
+    let collisions = 0, answerMissing = 0, checked = 0, sayMissing = 0;
     // Deterministic across many draws: the function shuffles, so one pass proves little.
     for (let round = 0; round < 40; round += 1) {
       for (const m of modules) {
@@ -236,6 +236,9 @@ ok('grid rows are pinned to max-content, so tiles cannot collapse',
         for (const c of m.cards.filter((x) => x.t === 'hear')) {
           const opts = fn(c);
           checked += 1;
+          /* RUMI L7: an option that cannot say itself in Spanish is the bug this whole
+             change exists to remove — it would send her back to reading the English. */
+          if (opts.some((o) => !o.say || !String(o.say).trim())) sayMissing += 1;
           const emos = opts.map((o) => o.emo);
           if (new Set(emos).size !== emos.length) collisions += 1;
           if (opts.filter((o) => o.correct).length !== 1) answerMissing += 1;
@@ -244,6 +247,7 @@ ok('grid rows are pinned to max-content, so tiles cannot collapse',
     }
     ok(`no HEAR card can render two options sharing an emoji (${checked} draws)`, collisions === 0);
     ok('every HEAR card renders exactly one correct option', answerMissing === 0);
+    ok('every option can speak itself in Spanish', sayMissing === 0);
     if (collisions) fails.push(`  ${collisions} of ${checked} draws collided`);
   }
 }

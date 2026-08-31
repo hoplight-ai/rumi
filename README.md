@@ -16,7 +16,7 @@ Vercel generated for this project is the one that counts; do not guess it from t
 | `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
 | `scripts/ci-check.mjs` | the structural gate. 34 assertions, no network, no dependencies |
-| `scripts/rumi-unit-test.mjs` | the behavioural suite. 170 assertions over the real shipped corpus |
+| `scripts/rumi-unit-test.mjs` | the behavioural suite. 171 assertions over the real shipped corpus |
 | `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. Drives a real browser — see below |
 | `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
 | `.github/workflows/ci.yml` | runs both gates on every push |
@@ -35,6 +35,47 @@ npm run rumi:cues       # render the English cues (idle help + phrase glosses)
 npm run rumi:embed      # base64 both banks back into the app file
 npm run rumi:bakeoff    # rebuild the voice comparison page
 ```
+
+## The listening drill, and the pace of a new instruction (RUMI L7, 2026-08-31)
+
+**A tap is a listen, not an answer.** Whit: *"when user taps an answer option it should speak
+that in spanish so the ear is being trained to listen and identify it... right now the only way
+to know what an answer chip is is to read it in english and that's no good."*
+
+He found the hole in the exercise. A tap used to *be* the answer, judged the instant it landed,
+so the only way to choose between three pictures was to read the small English caption under
+them — in a listening drill, in an app built for a child who cannot read. She was matching
+English to English and never had to hear a word of Spanish to get a card right.
+
+So tapping an option now **selects it and speaks it in Spanish**. She can tap all three, hold
+each against the phrase Rumi said, and commit with **▶︎**, which already means *I am done with
+this*. Wrong turns the chip red, takes it out of play — she ruled it out, and the app remembers
+that for her — and says the phrase again, so the next guess is made against a fresh hearing
+rather than a memory of one. Right turns it green, Rumi says the phrase and its English meaning
+once, and only then does the card advance; advancing on the tap would delete the confirmation,
+which is the part that teaches.
+
+The 🔊 button deliberately stays *say the question again* rather than becoming a second submit.
+She needs to re-hear the prompt far more often than she needs another way to commit, and one
+control that sometimes replays and sometimes answers would be worse than either.
+
+**The stroke instructions get their own, slower voice.** Whit: *"the spoken instructions for
+drawing letters and numbers is too fast to understand. the repetition comes a touch too fast and
+the spoken words are too fast for the instructions since those are difficult and new words."*
+
+Two different bugs in one sentence. *Pace*: the 41 stroke cues are the hardest Spanish in the
+app — `Baja hacia la izquierda, pasa la raya` is a sentence of unfamiliar words said while her
+hand is moving — and **not one of them has a recorded clip**, so every one falls through to the
+device voice at the card rate, which is tuned for phrases she has already met. A stroke cue now
+has its own rate (`TRACE_RATE`, 0.55) that **ignores the speed buttons**: 🐇 is a statement about
+how fast she wants the phrases, never about how fast a brand-new instruction can be decoded. Not
+lower than 0.55 because browsers clamp the synthesis floor around 0.5 and anything under it
+silently does nothing. *Gap*: the repeat used to land 250ms after the attempt was judged, before
+she had registered that the attempt was over. It is `TR_REPEAT_MS` now — a beat of silence is
+part of the instruction.
+
+Recording those 41 cues would beat both halves of this fix, and `npm run rumi:audio && npm run
+rumi:embed` already enumerates them. Until then the device voice is what says them, slowly.
 
 ## The three ways it went silent (RUMI L5, 2026-08-30)
 

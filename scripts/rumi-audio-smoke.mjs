@@ -215,6 +215,69 @@ ok('unmuting brings the sound back', audible(a.starts).length > 0, `started: ${J
 ok('unmuting retakes the audio session',
    await page.evaluate(() => !document.getElementById('silentLoop').paused));
 
+/* ---- 4b. the listening drill (RUMI L7) ----
+ * Whit, 2026-08-31: "right now the only way to know what an answer chip is is to read it in
+ * english and that's no good." A tap used to BE the answer, so the only way to choose was to
+ * read the English caption — in a listening drill, for a child who cannot read. These hold the
+ * new contract: a tap is a LISTEN, ▶︎ is the commit. */
+{
+  const q = await ctx.newPage();
+  await q.addInitScript(INSTRUMENT);
+  await q.goto(`file://${PAGE}`);
+  await q.waitForTimeout(300);
+  await q.click('#unlockBtn');
+  for (const t of await q.$$('.tile')) {
+    if ((await t.textContent()).includes('La profe dice')) { await t.click(); break; }
+  }
+  await q.waitForTimeout(900);
+  for (let i = 0; i < 12 && !(await q.$('.opt')); i += 1) { await q.click('#nextBtn'); await q.waitForTimeout(600); }
+  const cls = () => q.evaluate(() => [...document.querySelectorAll('.opt')].map((o) => o.className.replace('opt', '').trim() || '-'));
+  ok('a listening card renders options', (await q.$$('.opt')).length === 3);
+
+  await q.evaluate(() => { window.__a.starts = []; });
+  (await q.$$('.opt'))[0].click();
+  await q.waitForTimeout(900);
+  const tapped = await q.evaluate(() => window.__a);
+  ok('tapping an option SPEAKS it', audible(tapped.starts).length > 0,
+     `started: ${JSON.stringify(tapped.starts)}`);
+  ok('tapping an option does NOT judge it', (await cls())[0] === 'sel');
+  ok('a pending choice turns the advance button affirmative',
+     (await q.evaluate(() => document.getElementById('nextBtn').className)).includes('go'));
+
+  (await q.$$('.opt'))[1].click();
+  await q.waitForTimeout(500);
+  const moved = await cls();
+  ok('choosing another option moves the selection', moved[0] === '-' && moved[1] === 'sel');
+
+  /* Eliminate until the correct chip is found: which one it is is randomised per render. */
+  let sawWrong = false, sawRight = false, advanced = false;
+  for (let round = 0; round < 3; round += 1) {
+    const c = await cls();
+    const i = c.findIndex((x) => x !== 'wrong' && x !== 'right');
+    if (i < 0) break;
+    (await q.$$('.opt'))[i].click();
+    await q.waitForTimeout(400);
+    await q.click('#nextBtn');
+    await q.waitForTimeout(900);
+    const after = await cls();
+    if (after[i] === 'wrong') {
+      sawWrong = true;
+      ok('a wrong chip stops being tappable',
+         (await q.evaluate((n) => getComputedStyle(document.querySelectorAll('.opt')[n]).pointerEvents, i)) === 'none');
+      ok('a wrong answer stays on the card', (await q.$$('.opt')).length === 3);
+    } else if (after[i] === 'right') {
+      sawRight = true;
+      await q.waitForTimeout(5000);
+      advanced = JSON.stringify(await cls()) !== JSON.stringify(after);
+      break;
+    }
+  }
+  ok('a wrong answer turns the chip red', sawWrong);
+  ok('a right answer turns the chip green', sawRight);
+  ok('a right answer advances the card on its own', advanced);
+  await q.close();
+}
+
 /* ---- 5. the setting survives a reload, which is how all three bugs became permanent ---- */
 await page.reload();
 await page.waitForTimeout(500);
