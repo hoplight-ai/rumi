@@ -235,8 +235,16 @@
   /* small, low-contrast, and never the thing she is aiming at */
   .opt .ow{font-size:12px;font-weight:700;opacity:.5;line-height:1.15}
   .opt:active{transform:scale(.98)}
+  /* RUMI L7: chosen but NOT yet answered. Tapping an option is now how she HEARS it, so the
+     app has to show the difference between "I am listening to this one" and "this is my
+     answer" — without a word, because she cannot read one. Purple ring and a lift: the same
+     purple as the play button she already knows means sound. */
+  .opt.sel{border-color:var(--purple);background:#f7f1ff;transform:translateY(-3px);
+    box-shadow:0 8px 0 #00000018}
   .opt.right{border-color:var(--green);background:#eafff3}
   .opt.wrong{border-color:#ff9a9a;background:#fff0f0;opacity:.6}
+  /* A ruled-out option stops being a target rather than silently doing nothing. */
+  .opt.wrong{pointer-events:none}
 
   .reveal{
     width:100%;max-width:460px;background:#f4ecff;border-radius:24px;padding:16px;
@@ -1558,6 +1566,9 @@ function renderHome(){
 
 /* ================= module ================= */
 let cur = null, idx = 0, answered = false, revealed = false, beatTimer = null;
+/* RUMI L7: the pending choice on a listening card. Null until she taps an option, cleared by
+   every renderCard. Its existence is what turns ▶︎ from "next" into "check this". */
+let picked = null, pickedBtn = null;
 /* RUMI3: the card's own auto-play needs a handle. Without one, renderCard could not
    cancel the PREVIOUS card's queued speak, so tapping through quickly — which is exactly
    what a five-year-old does — let the old card start talking over the new one, and its
@@ -1608,6 +1619,7 @@ function renderCard(autoPlay){
      previous card painting onto the next one. */
   if(tr){ clearTimeout(tr.demoTimer); tr = null; }
   answered = false; revealed = false;
+  picked = null; pickedBtn = null;
   renderDots();
   const c = cur.cards[idx];
   const stage = document.getElementById("stage");
@@ -1923,28 +1935,31 @@ function buildHear(stage, c){
     const b = document.createElement("button");
     b.className = "opt";
     b.innerHTML = '<span class="oe">' + o.emo + '</span><span class="ow">' + o.en + '</span>';
+    /* RUMI L7, 2026-08-31. Whit: "when user taps an answer option it should speak that in
+       spanish so the ear is being trained to listen and identify it... right now the only way
+       to know what an answer chip is is to read it in english and that's no good."
+
+       He is describing the hole in the whole exercise. A tap used to BE the answer, judged
+       instantly, so the only way to choose was to read the English caption — in an app built
+       for a child who cannot read, wrapped around a listening drill. She was matching English
+       words to an English prompt and never had to hear Spanish at all.
+
+       So a tap is now a LISTEN, not a commit: it selects the option and speaks it in Spanish.
+       She can tap all three, compare them against the phrase Rumi said, and only then commit
+       — with ▶︎, which is the button that already means "I am done with this". That is the
+       drill: hear the question, hear each candidate, decide which one matched.
+
+       The 🔊 button deliberately stays "say the question again" rather than also submitting.
+       She needs to re-hear the prompt more often than she needs a second submit button, and
+       one control that sometimes replays and sometimes commits would be worse than either. */
     b.onclick = () => {
       if(answered) return;
-      answered = true;
-      if(o.correct){
-        b.classList.add("right");
-        markDone();
-        const n = document.getElementById("nextBtn");
-        n.className = "next go";
-        // show the Spanish once she's got it, for the grown-up in the room
-        const cue = box.querySelector(".cue");
-        cue.textContent = fill(c.es);
-        cue.style.fontSize = "20px";
-        cue.style.textTransform = "none";
-        /* RUMI3 W2: she has just committed to an answer and got it right, which is the ONE
-           moment English earns its place — she is being told whether her guess maps to the
-           right thing. Spanish first, then the English word once, after it. */
-        setTimeout(() => speak(spokenOf(c), () => sayEnglishOnce(c)), 260);
-      }else{
-        b.classList.add("wrong");
-        answered = false;
-        speak(spokenOf(c));
-      }
+      opts.querySelectorAll(".opt.sel").forEach(x => x.classList.remove("sel"));
+      b.classList.add("sel");
+      picked = o; pickedBtn = b;
+      /* ▶︎ turns affirmative so there is a visible answer to "what do I do now?" */
+      document.getElementById("nextBtn").className = "next go";
+      speak(o.say);
     };
     opts.appendChild(b);
   });
@@ -1976,7 +1991,9 @@ function buildOptions(c){
     for(const p of list.slice().sort(() => Math.random() - 0.5)){
       if(picks.length >= 2) break;
       if(!distinct(p)) continue;
-      picks.push({emo:p.emo, en:fill(p.en), correct:false});
+      /* RUMI L7: `say` is why this exists at all now — an option has to be able to speak
+         itself in Spanish, so it carries the same string spokenOf() would produce. */
+      picks.push({emo:p.emo, en:fill(p.en), say:fill(p.spoken || p.es, true), correct:false});
     }
   };
   take(cur.cards.filter(x => x.t === "hear" && x.es !== c.es));
@@ -1988,7 +2005,10 @@ function buildOptions(c){
   if(picks.length < 2){
     take(MODULES.reduce((a,m) => a.concat(m.cards.filter(x => x.emo)), []));
   }
-  picks.push({emo:c.emo, en:answerEn, correct:true});
+  /* Same expression as spokenOf(), written out rather than called: buildOptions is run
+     standalone by section D of rumi-unit-test.mjs against the real corpus, and it closes over
+     nothing but MODULES/cur/fill by design. It matches the distractor line above it. */
+  picks.push({emo:c.emo, en:answerEn, say:fill(c.spoken || c.es, true), correct:true});
   return picks.sort(() => Math.random() - 0.5);
 }
 
@@ -2174,6 +2194,42 @@ const TR_VIEW_FRAME = 640;
 const TR_VIEW_PAD = 84;
 const TR_GAP = 90;          /* units between the two glyphs of `10` */
 const TR_TRIES = 3;         /* attempts before a stroke is let through — see trJudge() */
+
+/* RUMI L7, 2026-08-31. Whit: "the spoken instructions for drawing letters and numbers is too
+   fast to understand. the repetition comes a touch too fast and the spoken words are too fast
+   for the instructions since those are difficult and new words."
+
+   Both halves are real and they are different bugs.
+
+   PACE. The 41 stroke instructions are the hardest Spanish in the app — `Baja hacia la
+   izquierda, pasa la raya` is a sentence of new words said while her hand is moving — and not
+   one of them has a recorded clip, so every one falls through to the device voice at the card
+   rate. A card rate is tuned for phrases she has met before. So a stroke cue now gets its own
+   rate, below every card speed, and it IGNORES the speed buttons: rabbit is a statement about
+   how fast she wants the phrases, never about how fast a brand-new instruction can be decoded.
+   0.55 and not lower because browsers clamp the synthesis floor around 0.5 and anything under
+   it silently does nothing at all.
+
+   GAP. The repeat used to land 250ms after the attempt was judged — before she had finished
+   registering that the attempt was over. A beat of silence is part of the instruction. */
+const TRACE_RATE = 0.55;
+const TR_REPEAT_MS = 1000;
+
+/* Always the device voice: there is no clip for any stroke cue, so this is not bypassing a
+   better path, it is naming the only one and slowing it down. Muting still works, because
+   mkUtt() reads S.muted for the volume. */
+function speakStroke(text){
+  if(!text) return;
+  stopSpeech();
+  if(!("speechSynthesis" in window)) return;
+  speaking = true;
+  const done = () => { speaking = false; };
+  const u = mkUtt(text, TRACE_RATE);
+  u.onend = done;
+  u.onerror = done;
+  chain.push(u);
+  speechSynthesis.speak(u);
+}
 const trReduced = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : {matches:false};
 let tr = null;
 
@@ -2343,7 +2399,7 @@ function trSayCue(){
   if(!cur) return;
   const el = document.getElementById("trCueText");
   if(el) el.textContent = cur.s.cue;
-  speak(cur.s.cue);
+  speakStroke(cur.s.cue);
 }
 
 /* Accepts on the three things tracing exists to teach: it started in the right place, it
@@ -2447,7 +2503,7 @@ function trJudge(){
   document.getElementById("trInk").setAttribute("d", "");
   tr.pts = [];
   if(tr.tries >= TR_TRIES){ setTimeout(trNext, 300); return; }
-  setTimeout(() => { trSayCue(); trDemo(); }, 250);
+  setTimeout(() => { trSayCue(); trDemo(); }, TR_REPEAT_MS);
 }
 
 function trNext(){
@@ -2458,7 +2514,7 @@ function trNext(){
   else if(tr.gi < tr.laid.length - 1){ tr.gi += 1; tr.si = 0; }
   else { trFinish(); return; }
   trDraw();
-  setTimeout(() => { trSayCue(); trDemo(); }, 260);
+  setTimeout(() => { trSayCue(); trDemo(); }, TR_REPEAT_MS);
 }
 
 function trFinish(){
@@ -2613,10 +2669,69 @@ function renderEnd(){
 }
 
 /* ================= nav ================= */
-document.getElementById("nextBtn").onclick = () => {
-  if(idx === -1){ stopSpeech(); renderHome(); show("scHome"); return; }
+function advanceCard(){
   if(idx < cur.cards.length - 1){ idx++; renderCard(); }
   else{ renderEnd(); }
+}
+
+/* RUMI L7. Judges the pending choice. Returns true when it consumed the press, so ▶︎ only
+   advances once there is nothing left to check on this card.
+
+   Wrong is not a dead end and not a punishment: the chip goes red and stops being tappable —
+   she has ruled it out, and the app remembers that for her — and the phrase is said again so
+   the next guess is made against a fresh hearing rather than a memory of one.
+
+   Right turns the chip green, then Rumi says the phrase and its English meaning once (the one
+   moment English earns its place: she has committed, and is being told whether her guess
+   mapped to the right thing), and only then does the card advance. Advancing instantly would
+   delete the confirmation, which is the part that teaches. */
+function submitChoice(){
+  if(answered || !picked) return false;
+  const o = picked, b = pickedBtn, c = cur.cards[idx];
+  picked = null; pickedBtn = null;
+  b.classList.remove("sel");
+
+  if(!o.correct){
+    b.classList.add("wrong");
+    document.getElementById("nextBtn").className = "next";
+    speak(spokenOf(c));
+    return true;
+  }
+
+  answered = true;
+  b.classList.add("right");
+  markDone();
+  document.getElementById("nextBtn").className = "next go";
+  const cue = document.querySelector("#stage .cue");
+  if(cue){
+    cue.textContent = fill(c.es);          /* the Spanish, for the grown-up in the room */
+    cue.style.fontSize = "20px";
+    cue.style.textTransform = "none";
+  }
+  /* Captured, because a timer that fires after she has navigated away must not advance
+     whatever card happens to be on screen by then. */
+  const atMod = cur, atIdx = idx;
+  setTimeout(() => speak(spokenOf(c), () => {
+    sayEnglishOnce(c);
+    setTimeout(() => {
+      if(cur === atMod && idx === atIdx && answered) advanceCard();
+    }, ADVANCE_AFTER_MS);
+  }), 260);
+  return true;
+}
+
+/* Long enough for one English word to finish over it. The English cue is fire-and-forget, so
+   this is a wait rather than a callback on purpose: a cue that is missing from the bank must
+   still advance the card, and a completion callback would never arrive to do it. */
+const ADVANCE_AFTER_MS = 1500;
+
+document.getElementById("nextBtn").onclick = () => {
+  if(idx === -1){ stopSpeech(); renderHome(); show("scHome"); return; }
+  if(submitChoice()) return;
+  /* Nothing chosen on a listening card: say the question again rather than skipping past a
+     question she has not answered. ← is always there if she wants out. */
+  if(!answered && document.querySelector("#stage .opt")){ playCard(); return; }
+  advanceCard();
 };
 document.getElementById("toHome").onclick = () => { stopSpeech(); clearTimeout(beatTimer); renderHome(); show("scHome"); };
 document.getElementById("toSettings").onclick = () => { buildSettings(); show("scSet"); };
