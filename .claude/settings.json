@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "hoplight": {
+      "source": {
+        "source": "github",
+        "repo": "hoplight-ai/claude-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "hoplight@hoplight": true
+  }
+}
