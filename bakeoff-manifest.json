@@ -2,7 +2,7 @@
   "id": "/rumi-voice-bakeoff",
   "name": "Rumi \u2014 which voice?",
   "short_name": "Voices",
-  "description": "Four candidate voices for Rumi, saying the same phrases back to back. Tap any phrase to compare, then pick the one that sounds right.",
+  "description": "Candidate voices for Rumi, each saying the same five things she hears in the app. Tap a row, listen, and pick one.",
   "start_url": "/rumi-voice-bakeoff",
   "scope": "/",
   "display": "standalone",

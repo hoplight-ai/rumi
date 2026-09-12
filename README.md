@@ -15,8 +15,8 @@ Vercel generated for this project is the one that counts; do not guess it from t
 | `rumi-espanol-app.html` | the whole app, 8,483,696 bytes |
 | `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
-| `scripts/ci-check.mjs` | the structural gate. 34 assertions, no network, no dependencies |
-| `scripts/rumi-unit-test.mjs` | the behavioural suite. 171 assertions over the real shipped corpus |
+| `scripts/ci-check.mjs` | the structural gate. 35 assertions, no network, no dependencies |
+| `scripts/rumi-unit-test.mjs` | the behavioural suite. 187 assertions over the real shipped corpus |
 | `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. Drives a real browser — see below |
 | `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
 | `.github/workflows/ci.yml` | runs both gates on every push |
@@ -33,8 +33,46 @@ npm run rumi:extract    # rebuild build/ from the shipped page (reuse, never res
 npm run rumi:audio      # render the Spanish clips
 npm run rumi:cues       # render the English cues (idle help + phrase glosses)
 npm run rumi:embed      # base64 both banks back into the app file
-npm run rumi:bakeoff    # rebuild the voice comparison page
+npm run rumi:bakeoff    # rebuild the old edge-tts voice comparison page
+npm run rumi:11:bakeoff # rebuild the ElevenLabs listening page (the one served now)
 ```
+
+## ElevenLabs, the slow speed, and the free plan (RUMIVOICE1, 2026-09-13)
+
+**What the key in `.env.local` can actually do, measured on the real service the same day.** It
+is a free-plan key: 10,000 credits, one credit per character, 3 saved-voice slots. A full re-voice
+of the app is 6,108 credits (`npm run rumi:11:estimate`). Three limits that no document had:
+- **No public-library voice works through the API on the free plan.** There are about a hundred
+  Spanish ones, Spain and Latin American (`npm run rumi:11:shared`); every one answers 402
+  `paid_plan_required`, at no charge, whatever its `free_users_allowed` flag says.
+- **Designing a voice through the API is refused too:** 403 `feature_not_available`.
+- The key's own library is Eleven's 21 ready-made voices, all English speakers.
+
+So the listening page (`npm run rumi:11:bakeoff`, served at `/rumi-voice-bakeoff`) carries every
+candidate the key can reach: the seven ready-made women reading Spanish, labelled as English
+speakers, beside one clip of the voice that is live today. The script also holds eight Spain and
+Latin American library voices and three voice designs; on the free key it skips them for free,
+and **with a paid-plan key a single re-run puts them on the same page.** No production clip is
+rendered until Whit names a voice.
+
+**Turtle no longer needs a device voice.** ElevenLabs returns per-character timing with each
+clip. `scripts/rumi-words.mjs` turns it into one start and end per word, `rumi-embed.mjs` writes
+that into `<script id="rumiTimes">`, and turtle then plays **the real recording one word at a
+time** — slices of one buffer at rate 1, so the pitch is never resampled, with the same gap after
+each word the device-voice turtle always used. Timing is dropped for any line whose recorded words
+do not match its text, cleared when the timing file is older than the clip map, and re-checked
+against each decoded buffer in the app — a wrong span cuts a word in half, which is worse than
+none. **Where there is no timing, everything plays exactly as before.** The drawing instructions
+use the same path when they have a clip: timed means word by word whatever the speed buttons
+say, untimed means the whole clip, no clip means the device voice at `TRACE_RATE` as before.
+Whether word by word is now too slow for a stroke cue is for an ear on the real render.
+
+The browser gate reproduces the bug first. Section 4c of `rumi-audio-smoke.mjs` splices a real
+ElevenLabs clip and its timing (`scripts/fixtures/`) into a temporary copy of the app. Against
+the 2026-09-12 build it failed four ways: the drawing instruction started no audio at all, turtle
+was switched off, turtle played the clip once instead of four words, and so did a muted read.
+The gate also now hides the device's voice list on every machine. A Mac's Chromium reports all
+180 macOS voices, so every `voices > 0 ||` check there used to pass without testing anything.
 
 ## The listening drill, and the pace of a new instruction (RUMI L7, 2026-08-31)
 
