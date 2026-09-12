@@ -16,6 +16,12 @@
     "rumi:trim-audit": "node scripts/rumi-trim-audit.mjs",
     "rumi:bakeoff": "node scripts/rumi-bakeoff.mjs",
     "rumi:embed": "node scripts/rumi-audio.mjs --map && node scripts/rumi-cues.mjs --map && node scripts/rumi-embed.mjs",
+    "rumi:11:estimate": "node scripts/rumi-eleven.mjs --estimate",
+    "rumi:11:balance": "node --env-file=.env.local scripts/rumi-eleven.mjs --balance",
+    "rumi:11:voices": "node --env-file=.env.local scripts/rumi-eleven.mjs --voices",
+    "rumi:11:audio": "node --env-file=.env.local scripts/rumi-eleven.mjs",
+    "rumi:11:cues": "node --env-file=.env.local scripts/rumi-eleven.mjs --cues",
+    "rumi:11:embed": "node --env-file=.env.local scripts/rumi-eleven.mjs --map && node --env-file=.env.local scripts/rumi-eleven.mjs --cues --map && node scripts/rumi-embed.mjs",
     "stamp": "node scripts/rumi-stamp.mjs"
   }
 }
