@@ -22,8 +22,10 @@
  * A skip is not a pass — nothing was played, so the app may already be silent.
  */
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { dirname, resolve, join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { wordSpans } from './rumi-words.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(here, '..', 'rumi-espanol-app.html');
@@ -54,6 +56,11 @@ if (!existsSync(PAGE)) {
  * a clip playing at gain 0 is silence, and must not be allowed to read as sound. */
 const INSTRUMENT = () => {
   window.__a = { starts: [], ctx: [], synth: [], errors: [] };
+  /* The device with no voices, on every machine. CI's Ubuntu Chromium has none, but a Mac's
+   * Chromium reports every macOS voice (180 on 2026-09-13), and on that machine every
+   * "voices > 0 ||" assertion below passed without testing anything. Hiding the list is what
+   * makes a local run test the iPad this app exists for. */
+  try { Object.defineProperty(speechSynthesis, 'getVoices', { configurable: true, value: () => [] }); } catch (e) { /* keep going */ }
   const AC = window.AudioContext;
   const gains = new Set();
   const origGain = AC.prototype.createGain;
@@ -72,6 +79,13 @@ const INSTRUMENT = () => {
         dur: src.buffer ? +src.buffer.duration.toFixed(2) : 0,
         viaGain: gains.has(target),
         gain: gains.has(target) ? target.gain.value : null,
+        /* Where in the buffer it starts and how much it plays: a word-by-word read is several
+         * starts into ONE buffer at rising offsets, and that is the only way to tell it apart
+         * from a whole clip played once. The rate is recorded because slowing by resampling
+         * drops the pitch, which is ruled out. */
+        offset: a.length > 1 ? +Number(a[1]).toFixed(2) : 0,
+        span: a.length > 2 ? +Number(a[2]).toFixed(2) : null,
+        rate: +src.playbackRate.value.toFixed(2),
       });
       return origStart(...a);
     };
@@ -161,7 +175,12 @@ ok('an undeliverable turtle cannot be selected in the first place',
  * it be, so the fix has to rescue a device that already carries it, not merely stop new
  * ones arriving there. Seeded straight into storage, because the button is disabled now. */
 {
-  const p2 = await ctx.newPage();
+  /* Its OWN context, so its own localStorage. Sharing the first page's context let that page —
+   * still holding speed "walk" in memory — save over the seeded turtle about 1.2s into this
+   * case, and "rescuing it does not rewrite the setting" failed on a build that rewrote
+   * nothing. Measured 2026-09-13: this page's own S.speed stayed "turtle" throughout. */
+  const ctx2 = await browser.newContext();
+  const p2 = await ctx2.newPage();
   await p2.addInitScript(INSTRUMENT);
   await p2.goto(`file://${PAGE}`);
   await p2.evaluate(() => localStorage.setItem('rumi.v1', JSON.stringify(
@@ -177,7 +196,7 @@ ok('an undeliverable turtle cannot be selected in the first place',
      `started: ${JSON.stringify(a2.starts)}, synth: ${JSON.stringify(a2.synth)}`);
   ok('rescuing it does not rewrite the setting underneath her',
      await p2.evaluate(() => JSON.parse(localStorage.getItem('rumi.v1') || '{}').speed === 'turtle'));
-  await p2.close();
+  await ctx2.close();
 }
 
 /* ---- 4. the mute control, and the iOS ring/silent switch it compensates for ---- */
@@ -276,6 +295,87 @@ ok('unmuting retakes the audio session',
   ok('a right answer turns the chip green', sawRight);
   ok('a right answer advances the card on its own', advanced);
   await q.close();
+}
+
+/* ---- 4c. the slow speed and the drawing instructions, on a device with no Spanish voice ----
+ * RUMIVOICE1, 2026-09-13. The brief's one reported bug: the slow speed went silent on a device
+ * with no Spanish voice, because it could only be spoken by a device voice. L5 stopped the
+ * silence by switching turtle OFF on such a device — so her iPad has never had a slow speed at
+ * all — and the 41 drawing instructions are still spoken only by a device voice, so on that
+ * iPad every one of them is silence.
+ *
+ * The fixture is a real ElevenLabs recording of one of the 41, with the per-character timing the
+ * service returned beside it (scripts/fixtures/). It is spliced into a temporary copy of the app,
+ * so the case runs whether or not the production clips have been re-rendered yet. */
+{
+  const fx = JSON.parse(readFileSync(resolve(here, 'fixtures', 'eleven-baja-una-linea-grande.json'), 'utf8'));
+  const spans = wordSpans(fx.text, fx.alignment);
+  const key = fx.text.replace(/\s+/g, ' ').trim().toLowerCase();
+  let html = readFileSync(PAGE, 'utf8');
+  const clipTag = `<script>window.RUMI_CLIPS[${JSON.stringify(key)}] = ${JSON.stringify(fx.mp3_base64)};</script>`;
+  const timesBody = `window.RUMI_TIMES = ${JSON.stringify({ [key]: spans })};`;
+  const TIMES_TAG = /(<script id="rumiTimes">)([\s\S]*?)(<\/script>)/;
+  /* After the cue tag and before the app script, which reads both maps once at boot. */
+  const at = html.indexOf('</script>', html.indexOf('<script id="rumiCues">')) + '</script>'.length;
+  html = TIMES_TAG.test(html)
+    ? html.slice(0, at) + clipTag + html.slice(at).replace(TIMES_TAG, (_m, o, _b, c) => `${o}${timesBody}${c}`)
+    : html.slice(0, at) + clipTag + `<script id="rumiTimes">${timesBody}</script>` + html.slice(at);
+  const FIXTURE = join(mkdtempSync(join(tmpdir(), 'rumi-timed-')), 'rumi-fixture-timed.html');
+  writeFileSync(FIXTURE, html);
+
+  const cx = await browser.newContext();
+  const t = await cx.newPage();
+  t.on('pageerror', (e) => console.log(`      pageerror: ${e.message.slice(0, 200)}`));
+  await t.addInitScript(INSTRUMENT);
+  await t.goto(`file://${FIXTURE}`);
+  await t.waitForTimeout(400);
+  await t.click('#unlockBtn');
+  await t.waitForTimeout(300);
+  const words = fx.text.split(/\s+/).length;
+  const clear = () => t.evaluate(() => { stopSpeech(); window.__a.starts = []; window.__a.synth = []; });
+
+  await clear();
+  await t.evaluate((line) => speakStroke(line), fx.text);
+  await t.waitForTimeout(7000);
+  let s = await t.evaluate(() => window.__a);
+  ok('a drawing instruction is audible on a device with no Spanish voice', audible(s.starts).length > 0,
+     `started: ${JSON.stringify(s.starts)}, device-voice attempts: ${JSON.stringify(s.synth)}`);
+
+  ok('the slow speed is offered on a device with no Spanish voice once recordings carry timing',
+     await t.evaluate(() => !document.querySelector('.sp[data-speed="turtle"]').disabled));
+
+  await clear();
+  await t.evaluate((line) => { S.speed = 'turtle'; speak(line); }, fx.text);
+  await t.waitForTimeout(7000);
+  s = await t.evaluate(() => window.__a);
+  const heard = audible(s.starts);
+  const offsets = heard.map((x) => x.offset);
+  ok(`the slow speed plays the real recording one word at a time (${words} words, ${words} starts)`,
+     heard.length === words && offsets.every((o, i) => !i || o > offsets[i - 1]),
+     `started: ${JSON.stringify(s.starts)}, device-voice attempts: ${JSON.stringify(s.synth)}`);
+  ok('a word-by-word read keeps the pitch (no resampling)', heard.length > 0 && heard.every((x) => x.rate === 1),
+     `rates: ${JSON.stringify(heard.map((x) => x.rate))}`);
+
+  /* The fallback is today's behaviour, exactly: a line with a clip and no timing, on a device
+   * with no voice, plays its whole clip once. "Gracias" is a shipped clip with no timing. */
+  await clear();
+  await t.evaluate(() => { S.speed = 'turtle'; speak('Gracias'); });
+  await t.waitForTimeout(2500);
+  s = await t.evaluate(() => window.__a);
+  ok('a line with no timing still plays its whole clip at the slow speed, as it does today',
+     audible(s.starts).length === 1 && audible(s.starts)[0].offset === 0,
+     `started: ${JSON.stringify(s.starts)}`);
+
+  /* Mute is a gain change, never a refusal: every word still runs, so what follows keeps time. */
+  await clear();
+  await t.evaluate((line) => { S.muted = true; S.speed = 'turtle'; speak(line); }, fx.text);
+  await t.waitForTimeout(7000);
+  s = await t.evaluate(() => window.__a);
+  ok('a muted word-by-word read still runs every word at gain 0',
+     s.starts.filter((x) => x.dur > 0.05 && x.gain === 0).length === words,
+     `started: ${JSON.stringify(s.starts)}`);
+  await t.evaluate(() => { S.muted = false; });
+  await cx.close();
 }
 
 /* ---- 5. the setting survives a reload, which is how all three bugs became permanent ---- */

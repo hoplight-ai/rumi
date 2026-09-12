@@ -24,6 +24,7 @@
 // usage:
 //   node scripts/rumi-eleven.mjs --estimate          what it would cost, no key, no network
 //   node scripts/rumi-eleven.mjs --voices            list the voices the key can reach
+//   node scripts/rumi-eleven.mjs --shared es         search the public library by language
 //   node scripts/rumi-eleven.mjs --balance           credits used and remaining
 //   node scripts/rumi-eleven.mjs                     render the 280 Spanish strings
 //   node scripts/rumi-eleven.mjs --cues              render the 171 English cues
@@ -264,6 +265,9 @@ async function main() {
     console.log(`tier: ${s.tier}`);
     console.log(`credits used this period: ${used?.toLocaleString()} of ${cap?.toLocaleString()}`);
     console.log(`remaining: ${(cap - used)?.toLocaleString()}`);
+    // A free key can speak only with voices saved in its own library — public-library voices
+    // answer 402 "paid_plan_required" — so the number of saved-voice slots is a real limit.
+    console.log(`saved voice slots: ${s.voice_slots_used ?? '?'} of ${s.voice_limit ?? '?'}`);
     const { total } = estimate(html);
     console.log(`a full Rumi re-voice is ${total} of those, i.e. ${((total / (cap - used)) * 100).toFixed(3)}% of what is left.`);
     return;
@@ -277,6 +281,27 @@ async function main() {
       console.log(`${v.voice_id}  ${String(v.name).padEnd(24)} ${langs} ${v.labels?.description || ''}`);
     }
     console.log(`\n${voices.length} voices reachable by this key.`);
+    return;
+  }
+
+  // The key's own library is whatever the account has saved — on a fresh free account that is
+  // Eleven's 21 default English voices and not one Spanish one. Every Spanish voice worth
+  // hearing lives in the PUBLIC library, which is a different endpoint. This lists it so the
+  // bake-off page can be built from real candidates rather than from names in a brief.
+  if (args.includes('--shared')) {
+    const i = args.indexOf('--shared');
+    const lang = args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : 'es';
+    const res = await api(`/v1/shared-voices?page_size=100&language=${encodeURIComponent(lang)}`);
+    const { voices } = await res.json();
+    for (const v of voices) {
+      const acc = v.accent || v.locale || '';
+      console.log(
+        `${v.voice_id}  ${String(v.name).slice(0, 38).padEnd(38)} ${String(acc).padEnd(16)} `
+        + `${String(v.age || '').padEnd(11)} ${String(v.gender || '').padEnd(7)} `
+        + `${String(v.use_case || '').padEnd(16)} ${String(v.free_users_allowed)}`,
+      );
+    }
+    console.log(`\n${voices.length} public ${lang} voices. Last column: usable on a free key.`);
     return;
   }
 

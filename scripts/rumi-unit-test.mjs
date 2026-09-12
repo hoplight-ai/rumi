@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect, normalizeKey, expand, readModules, FIXED_STRINGS, needsGloss, readGlyphs, collectCues } from './rumi-strings.mjs';
 import { HELP_LINES, collectEnglish } from './rumi-cues.mjs';
+import { wordSpans, spanMap } from './rumi-words.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(ROOT, 'rumi-espanol-app.html'), 'utf8');
@@ -100,8 +101,11 @@ ok('speak falls through to speakSynth on a clip miss',
    /if\(!k\)\{ speakSynth\(text, finish\); return; \}/.test(html));
 ok('a decode failure falls back',
    html.includes('.catch(() => { if(speaking && gen === speechGen) speakSynth(text, finish); })'));
-ok('turtle speed never uses a clip',
-   html.includes('if(sp === "turtle" || !CLIP_COUNT){ speakSynth(text, finish); return; }'));
+/* RUMIVOICE1 retired "turtle speed never uses a clip": turtle now plays the real recording word
+   by word when the line has timing. What stays is the fallback — with a device voice and no
+   timing, turtle is still the device voice, exactly as before. */
+ok('turtle uses the device voice only when it has one and the line has no timing',
+   html.includes('if(!CLIP_COUNT || (sp === "turtle" && voice && !hasTiming(text))){ speakSynth(text, finish); return; }'));
 ok('stopSpeech stops a playing clip', /function stopSpeech\(\)\{[\s\S]*?stopClip\(\);/.test(html));
 ok('clipFor refuses without a RUNNING context',
    /function clipFor\(text\)\{[\s\S]*?!audioReady\(\)\) return null;/.test(html));
@@ -157,8 +161,12 @@ ok('an undeliverable turtle button is disabled',
 /* The mute control Whit asked for alongside the switch workaround. */
 ok('a mute control exists on both screens', (html.match(/<button class="mute"/g) || []).length === 2);
 ok('mute is persisted', /const DEF = \{[^}]*muted:false/.test(html));
+/* Was a fixed count of 3. RUMIVOICE1 added a fourth player (the word-by-word read), and a fixed
+   count would have let a fifth player skip the gain node the day someone also removed one. So:
+   every buffer source except the one-sample primer connects through outputNode(). */
 ok('every clip plays through the master gain',
-   (html.match(/src\.connect\(outputNode\(\)\)/g) || []).length === 3);
+   (html.match(/src\.connect\(outputNode\(\)\)/g) || []).length
+     === (html.match(/actx\.createBufferSource\(\)/g) || []).length - 1);
 ok('nothing but the gain node and the primer touches destination raw',
    (html.match(/connect\(actx\.destination\)/g) || []).length === 2);
 /* Muting by gain and by utterance volume — never by refusing to play — is what keeps the
@@ -688,6 +696,41 @@ ok('every CUE_KEY has a generated line', (() => {
       if (sameCue.length) fails.push(`  still English: ${sameCue.slice(0, 5).join(', ')}`);
     }
   }
+}
+
+/* ---- 13. per-word timing (RUMIVOICE1) ----
+ * The slow speed plays the real recording one word at a time, from spans that rumi-words.mjs
+ * builds out of ElevenLabs' per-character timing. A span that is wrong cuts a word in half and she
+ * repeats what she hears, so the converter must refuse anything it cannot line up exactly. The
+ * fixture is a real render from the service, not a hand-written shape. */
+{
+  const fx = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'fixtures', 'eleven-baja-una-linea-grande.json'), 'utf8'));
+  const sp = wordSpans(fx.text, fx.alignment);
+  const words = fx.text.split(/\s+/);
+  ok('word spans: a real ElevenLabs timing converts', Array.isArray(sp));
+  ok('word spans: one start/end pair per word of the spoken line', sp && sp.length === 1 + 2 * words.length);
+  ok('word spans: every word ends after it starts, and words run in order',
+    sp && words.every((_, i) => sp[2 + 2 * i] > sp[1 + 2 * i] && (!i || sp[1 + 2 * i] >= sp[2 * i])));
+  ok('word spans: the clip end is the last character end',
+    sp && sp[0] === Math.round(fx.alignment.character_end_times_seconds.at(-1) * 100) / 100);
+  ok('word spans: a recording that said a different word is refused',
+    wordSpans('Baja una línea pequeña', fx.alignment) === null);
+  ok('word spans: a recording with a different word count is refused',
+    wordSpans('Baja una línea muy grande', fx.alignment) === null);
+  ok('word spans: case and punctuation do not count as a different word',
+    Array.isArray(wordSpans('¡baja una LÍNEA grande!', fx.alignment)));
+  ok('word spans: no alignment is no timing, not a crash', wordSpans(fx.text, null) === null);
+  const { map, dropped } = spanMap(
+    [{ key: 'baja una línea grande', text: fx.text }, { key: 'otra', text: 'Otra vez' }],
+    { 'baja una línea grande': fx.alignment, otra: fx.alignment });
+  ok('word spans: a map keeps what lines up and names what it dropped',
+    Object.keys(map).length === 1 && dropped.length === 1 && dropped[0] === 'otra');
+  // The app reads the same shape back. Its tag must exist, or the embed step refuses.
+  ok('the app carries a rumiTimes tag for the embed step to fill', /<script id="rumiTimes">[\s\S]*?<\/script>/.test(html));
+  ok('the app plays timed lines word by word from the recording',
+    /function playWords\(/.test(html) && /function wordTiming\(/.test(html));
+  ok('the slow speed no longer needs a device voice once timing exists',
+    /function turtleUsable\(\)\{ return !!voice \|\| !CLIP_COUNT \|\| TIME_COUNT > 0; \}/.test(html));
 }
 
 console.log(`${pass} passed, ${fails.length} failed`);

@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect } from './rumi-strings.mjs';
+import { spanMap } from './rumi-words.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HTML = path.join(ROOT, 'rumi-espanol-app.html');
@@ -25,6 +26,10 @@ const TAG = /(<script id="rumiClips">)([\s\S]*?)(<\/script>)/;
 // separate end to end so a Spanish regeneration can never overwrite an en-GB recording.
 const CUE_FILE = path.join(ROOT, 'build', 'rumi-cues.json');
 const CUE_TAG = /(<script id="rumiCues">)([\s\S]*?)(<\/script>)/;
+// RUMIVOICE1: ElevenLabs' per-character timing for the Spanish clips, written by
+// `rumi-eleven.mjs --map`, turned into per-word spans here (scripts/rumi-words.mjs).
+const TIMES_FILE = path.join(ROOT, 'build', 'rumi-times.json');
+const TIMES_TAG = /(<script id="rumiTimes">)([\s\S]*?)(<\/script>)/;
 
 // Vercel serves this as one static file to an iPad, possibly on hotel wifi. 10MB is the
 // brief's ceiling; the realistic payload is a third of that and a surprise past it means
@@ -85,12 +90,35 @@ function main() {
     const cueBody = `window.RUMI_CUES = ${JSON.stringify(cues)};`;
     next = next.replace(CUE_TAG, (_all, open, _old, close) => `${open}${cueBody}${close}`);
   }
+  // Timing. A timing map describes ONE set of recordings. The edge-tts path rewrites
+  // rumi-clips.json and never writes timing, so after an edge run the timing file on disk
+  // describes clips that are no longer the ones being embedded — and a stale span cuts a word
+  // in half. So timing is written only when it is at least as new as the clip map, and it is
+  // otherwise CLEARED, never left behind. The app double-checks each span against its buffer.
+  let timed = 0;
+  let timesNote = 'none';
+  let times = {};
+  if (fs.existsSync(TIMES_FILE) && fs.statSync(TIMES_FILE).mtimeMs >= fs.statSync(MAP_FILE).mtimeMs) {
+    const raw = JSON.parse(fs.readFileSync(TIMES_FILE, 'utf8'));
+    const items = collect(html).filter((it) => Object.prototype.hasOwnProperty.call(clips, it.key));
+    const { map, dropped } = spanMap(items, raw);
+    times = map;
+    timed = Object.keys(map).length;
+    timesNote = `${timed} lines timed${dropped.length ? `, ${dropped.length} dropped (recorded words did not match the text)` : ''}`;
+    for (const k of dropped) console.log(`  UNTIMED  ${k}`);
+  } else if (fs.existsSync(TIMES_FILE)) {
+    timesNote = 'cleared: the timing file is older than the clip map, so it describes other recordings';
+  }
+  if (!TIMES_TAG.test(next)) fail('no <script id="rumiTimes"> tag in rumi-espanol-app.html');
+  next = next.replace(TIMES_TAG, (_all, open, _old, close) => `${open}window.RUMI_TIMES = ${JSON.stringify(times)};${close}`);
+
   const bytes = Buffer.byteLength(next, 'utf8');
   if (bytes > MAX_BYTES) fail(`result would be ${(bytes / 1e6).toFixed(2)} MB, over the ${MAX_BYTES / 1e6} MB ceiling`);
 
   fs.writeFileSync(HTML, next);
 
   console.log(`embedded ${keys.length} spanish clips + ${cueCount} english cues`);
+  console.log(`per-word timing: ${timesNote}`);
   console.log(`rumi-espanol-app.html: ${(bytes / 1e6).toFixed(2)} MB`);
   console.log(`strings the app can speak: ${wanted.length}`);
   console.log(`missing clips (fall back to speechSynthesis): ${missing.length}`);
