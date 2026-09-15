@@ -47,6 +47,8 @@ export const RATE_OFFSET = '-35%';
 
 const OUT_DIR = path.join(ROOT, 'build', 'rumi-clips');
 const MAP_FILE = path.join(ROOT, 'build', 'rumi-clips.json');
+// The same file rumi-eleven.mjs writes, in a different shape that rumi-words.mjs tells apart.
+const TIMES_FILE = path.join(ROOT, 'build', 'rumi-times.json');
 
 // edge-tts installs to the user site-packages bin, which is not on PATH here.
 const CANDIDATES = [
@@ -81,14 +83,41 @@ export function clipFile(key) {
   return `${createHash('sha256').update(stamp).digest('hex').slice(0, 16)}.mp3`;
 }
 
+let fellBackOnce = false;
+
+/** One clip, and the word marks beside it.
+ *
+ * RUMIVOICE1, 2026-09-15: this used to run the `edge-tts` command, which throws the service's
+ * word boundaries away. The slow speed needs them — it plays the recording one word at a time —
+ * so the call now goes through scripts/rumi-edge-words.py, which asks the same service for the
+ * same voice at the same rate and keeps the marks. The audio is unchanged; only the discarded
+ * half is new. If python3 cannot import the library, the command path below still records the
+ * clip, and that clip simply plays whole, exactly as it did before this change. */
 async function synth(bin, text, dest) {
-  await execFileAsync(bin, [
-    '--voice', VOICE,
-    // `--rate=-20%` as ONE token: argparse reads a separate `-20%` as an option, not a value.
-    `--rate=${RATE_OFFSET}`,
-    '--text', text,
-    '--write-media', dest,
-  ], { timeout: 60_000 });
+  const marks = `${dest}.json`;
+  try {
+    await execFileAsync('python3', [
+      path.join(ROOT, 'scripts', 'rumi-edge-words.py'),
+      '--voice', VOICE,
+      `--rate=${RATE_OFFSET}`,
+      '--text', text,
+      '--media', dest,
+      '--marks', marks,
+    ], { timeout: 60_000 });
+  } catch (e) {
+    if (!fellBackOnce) {
+      console.log(`  word timing unavailable (${String(e.message).split('\n')[0].slice(0, 120)});`);
+      console.log('  falling back to the edge-tts command: clips still record, they just play whole.');
+      fellBackOnce = true;
+    }
+    await execFileAsync(bin, [
+      '--voice', VOICE,
+      // `--rate=-20%` as ONE token: argparse reads a separate `-20%` as an option, not a value.
+      `--rate=${RATE_OFFSET}`,
+      '--text', text,
+      '--write-media', dest,
+    ], { timeout: 60_000 });
+  }
   const { size } = fs.statSync(dest);
   if (size < 512) throw new Error(`clip too small (${size} bytes) for: ${text}`);
   return size;
@@ -96,6 +125,7 @@ async function synth(bin, text, dest) {
 
 function writeMap(items) {
   const clips = {};
+  const times = {};
   let bytes = 0;
   for (const it of items) {
     const f = path.join(OUT_DIR, clipFile(it.key));
@@ -103,9 +133,16 @@ function writeMap(items) {
     const buf = fs.readFileSync(f);
     bytes += buf.length;
     clips[it.key] = buf.toString('base64');
+    const t = `${f}.json`;
+    if (fs.existsSync(t)) times[it.key] = JSON.parse(fs.readFileSync(t, 'utf8'));
   }
   fs.writeFileSync(MAP_FILE, JSON.stringify(clips));
-  return { count: Object.keys(clips).length, bytes };
+  // Written AFTER the clip map, always, so its modification time is never older: rumi-embed.mjs
+  // reads that comparison as "this timing describes these recordings" and clears the timing when
+  // it does not. Deleted rather than left stale when a run produced no marks at all.
+  if (Object.keys(times).length) fs.writeFileSync(TIMES_FILE, JSON.stringify(times));
+  else if (fs.existsSync(TIMES_FILE)) fs.rmSync(TIMES_FILE);
+  return { count: Object.keys(clips).length, bytes, timed: Object.keys(times).length };
 }
 
 async function main() {
@@ -118,7 +155,7 @@ async function main() {
 
   if (args.includes('--map')) {
     const r = writeMap(items);
-    console.log(`map: ${r.count} clips, ${(r.bytes / 1e6).toFixed(2)} MB raw -> ${MAP_FILE}`);
+    console.log(`map: ${r.count} clips, ${(r.bytes / 1e6).toFixed(2)} MB raw, ${r.timed} with word timing -> ${MAP_FILE}`);
     return;
   }
 
@@ -130,7 +167,13 @@ async function main() {
 
   for (const it of todo) {
     const dest = path.join(OUT_DIR, clipFile(it.key));
-    if (fs.existsSync(dest) && fs.statSync(dest).size >= 512) {
+    // A cached clip is reused only when its word marks are cached too. The marks arrive with
+    // the audio and cannot be recovered from an mp3 afterwards, so a clip recorded before this
+    // change has to be recorded again to gain a slow speed — once, and then it caches like any
+    // other. Once a run has proved the timing path unavailable, cached clips are reused as they
+    // always were rather than re-recorded on every run for marks that are not coming.
+    if (fs.existsSync(dest) && fs.statSync(dest).size >= 512
+        && (fellBackOnce || fs.existsSync(`${dest}.json`))) {
       skipped += 1;
       bytes += fs.statSync(dest).size;
       continue;

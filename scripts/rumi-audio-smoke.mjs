@@ -26,6 +26,7 @@ import { dirname, resolve, join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { wordSpans } from './rumi-words.mjs';
+import { collectCues } from './rumi-strings.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(here, '..', 'rumi-espanol-app.html');
@@ -165,11 +166,27 @@ ok('a tap revives audio after an iOS-style interruption', audible(a.starts).leng
    `context is ${await page.evaluate(() => window.__ctx.state)}, started: ${JSON.stringify(a.starts)}`);
 
 /* ---- 3. turtle must never be the reason the app is silent ----
- * Turtle bypasses the clips by design (it needs one utterance per word). On this voiceless
- * device that made it silent — and the speed is persisted, so one tap of 🐢 by a
- * five-year-old muted the app across reloads. */
-ok('an undeliverable turtle cannot be selected in the first place',
-   voices > 0 || await page.evaluate(() => document.querySelector('.sp[data-speed="turtle"]').disabled));
+ * Turtle used to bypass the clips by design (it needed one utterance per word). On this
+ * voiceless device that made it silent — and the speed is persisted, so one tap of 🐢 by a
+ * five-year-old muted the app across reloads.
+ *
+ * RUMIVOICE1 phase B, 2026-09-15: the rule this case asserted — a voiceless device must have
+ * turtle DISABLED — is deliberately retired, and it had to be, because it meant her iPad never
+ * had a slow speed at all. Every Spanish line now carries per-word timing, so turtle is
+ * delivered from the recording itself. What the case was always protecting is unchanged and is
+ * asserted directly below: turtle is never silence. The old assertion would now fail against a
+ * correct build, which is exactly why it is replaced rather than deleted. */
+{
+  await reset();
+  await page.evaluate(() => { S.speed = 'turtle'; speak('Gracias'); });
+  await page.waitForTimeout(2500);
+  const t3 = await seen();
+  ok('the slow speed makes sound on a voiceless device instead of being taken away',
+     audible(t3.starts).length > 0
+       && !await page.evaluate(() => document.querySelector('.sp[data-speed="turtle"]').disabled),
+     `started: ${JSON.stringify(t3.starts)}, device-voice attempts: ${JSON.stringify(t3.synth)}`);
+  await page.evaluate(() => { S.speed = 'walk'; stopSpeech(); });
+}
 
 /* The state Whit's iPad is actually in: turtle was tapped and SAVED by the build that let
  * it be, so the fix has to rescue a device that already carries it, not merely stop new
@@ -268,12 +285,30 @@ ok('unmuting retakes the audio session',
   const moved = await cls();
   ok('choosing another option moves the selection', moved[0] === '-' && moved[1] === 'sel');
 
-  /* Eliminate until the correct chip is found: which one it is is randomised per render. */
+  /* Eliminate until the correct chip is found: which one it is is randomised per render.
+   *
+   * FLAKE FIXED 2026-09-15 (RUMIVOICE1 phase B). This used to take the first chip not yet
+   * ruled out, which is the correct one about one render in three — and then the loop broke on
+   * "right" having never seen a red chip, so "a wrong answer turns the chip red" failed on a
+   * build with nothing wrong with it. Observed failing twice in four runs on 2026-09-15. The
+   * order is deterministic now: the correct chip is identified first (its English caption is
+   * the card's own) and deliberately left until last, so a wrong one is always judged first.
+   * A test that fails one run in three teaches a reader to re-run it, which is how a real red
+   * gets waved through. */
+  const rightIdx = await q.evaluate(() => {
+    const want = fill(cur.cards[idx].en);
+    return [...document.querySelectorAll('.opt .ow')].findIndex((e) => e.textContent === want);
+  });
+  ok('the correct chip can be identified before it is clicked, so the order is not luck',
+     rightIdx >= 0, `index: ${rightIdx}`);
   let sawWrong = false, sawRight = false, advanced = false;
   for (let round = 0; round < 3; round += 1) {
     const c = await cls();
-    const i = c.findIndex((x) => x !== 'wrong' && x !== 'right');
-    if (i < 0) break;
+    const open = c.map((x, n) => [x, n]).filter(([x]) => x !== 'wrong' && x !== 'right');
+    /* A wrong one while any remains; the correct one only when it is all that is left. */
+    const pick = open.find(([, n]) => n !== rightIdx) || open[0];
+    if (!pick) break;
+    const i = pick[1];
     (await q.$$('.opt'))[i].click();
     await q.waitForTimeout(400);
     await q.click('#nextBtn');
@@ -376,6 +411,53 @@ ok('unmuting retakes the audio session',
      `started: ${JSON.stringify(s.starts)}`);
   await t.evaluate(() => { S.muted = false; });
   await cx.close();
+}
+
+/* ---- 4d. the SHIPPED app, not a fixture: the 41 drawing instructions, and timing for real ----
+ * RUMIVOICE1 phase B, 2026-09-15. 4c above proves the playback path works when a timed recording
+ * is spliced in. It cannot prove the app actually ships any, because it replaces both maps with
+ * its own fixture. This case asks the opposite question, of the file as deployed: does the build
+ * on disk carry a recording and per-word timing for the drawing instructions, so that the iPad
+ * with no Spanish voice hears them at every speed?
+ *
+ * Observed RED against 936f90c (the phase A build): 0 of 41 drawing instructions had a recording,
+ * the app's timing map was empty, and the slow-speed control was disabled on a voiceless device.
+ * The free Spanish voice can answer all three — it returns word boundaries alongside the audio —
+ * which is what the generator change below this test does. */
+{
+  const strokes = collectCues(readFileSync(PAGE, 'utf8'));
+  const shipped = await page.evaluate(
+    (keys) => keys.filter((k) => Object.prototype.hasOwnProperty.call(window.RUMI_CLIPS || {}, k)),
+    strokes.map((c) => c.key),
+  );
+  ok(`every drawing instruction has a recording of its own (${shipped.length} of ${strokes.length})`,
+     shipped.length === strokes.length,
+     `${strokes.length - shipped.length} still fall through to a device voice, i.e. to silence on her iPad`);
+
+  const timed = await page.evaluate(() => Object.keys(window.RUMI_TIMES || {}).length);
+  ok(`the build ships per-word timing (${timed} lines timed)`, timed > 0,
+     'with no timing the slow speed can only be a device voice, and that is the reported bug');
+
+  /* The whole point, end to end, on the real file: one of the 41, at the slow speed, on a device
+   * with no voices at all. It must be several starts into one buffer at rising offsets — that is
+   * word-by-word from the recording — and never a device-voice attempt. */
+  const line = (strokes.find((c) => c.text.split(/\s+/).length >= 4) || strokes[0]).text;
+  const wordCount = String(line).split(/\s+/).filter(Boolean).length;
+  await reset();
+  await page.evaluate((l) => { S.speed = 'turtle'; speak(l); }, line);
+  await page.waitForTimeout(9000);
+  const s4d = await seen();
+  const heard4d = audible(s4d.starts);
+  ok(`a drawing instruction plays word by word from its own recording at the slow speed (${wordCount} words)`,
+     heard4d.length === wordCount
+       && heard4d.every((x, i) => !i || x.offset > heard4d[i - 1].offset)
+       && heard4d.every((x) => x.rate === 1)
+       && s4d.synth.length === 0,
+     `line: ${line}\n      started: ${JSON.stringify(s4d.starts)}, device-voice attempts: ${JSON.stringify(s4d.synth)}`);
+
+  ok('the slow speed is available on a device with no voices at all',
+     await page.evaluate(() => !document.querySelector('.sp[data-speed="turtle"]').disabled));
+  await page.evaluate(() => { S.speed = 'walk'; stopSpeech(); });
 }
 
 /* ---- 5. the setting survives a reload, which is how all three bugs became permanent ---- */

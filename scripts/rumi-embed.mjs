@@ -26,8 +26,8 @@ const TAG = /(<script id="rumiClips">)([\s\S]*?)(<\/script>)/;
 // separate end to end so a Spanish regeneration can never overwrite an en-GB recording.
 const CUE_FILE = path.join(ROOT, 'build', 'rumi-cues.json');
 const CUE_TAG = /(<script id="rumiCues">)([\s\S]*?)(<\/script>)/;
-// RUMIVOICE1: ElevenLabs' per-character timing for the Spanish clips, written by
-// `rumi-eleven.mjs --map`, turned into per-word spans here (scripts/rumi-words.mjs).
+// RUMIVOICE1: per-word timing for the Spanish clips, written by whichever recorder made them
+// (`rumi-audio.mjs --map` or `rumi-eleven.mjs --map`) and turned into spans by rumi-words.mjs.
 const TIMES_FILE = path.join(ROOT, 'build', 'rumi-times.json');
 const TIMES_TAG = /(<script id="rumiTimes">)([\s\S]*?)(<\/script>)/;
 
@@ -80,6 +80,16 @@ function main() {
   let cueCount = 0;
   if (fs.existsSync(CUE_FILE)) {
     const cues = JSON.parse(fs.readFileSync(CUE_FILE, 'utf8'));
+    // Found 2026-09-15, one run before it shipped. `rumi:embed` regenerates the cue map from
+    // build/rumi-cues/, and on a fresh clone that folder is empty — so the map is {}, this step
+    // replaces a tag holding 171 English recordings with nothing, and every gate stays green
+    // because an app with no English audio is a valid app. The child just stops being told what
+    // anything means. An empty map is therefore only ever written over an already-empty tag.
+    const cuesNow = (next.match(CUE_TAG)?.[2] || '').length;
+    if (!Object.keys(cues).length && cuesNow > 200) {
+      fail('the cue map is empty but the app has English cues embedded — regenerate them '
+        + '(node scripts/rumi-cues.mjs) rather than deleting them');
+    }
     for (const k of Object.keys(cues)) {
       const v = cues[k];
       if (typeof v !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(v)) fail(`cue for "${k}" is not base64`);
@@ -90,10 +100,11 @@ function main() {
     const cueBody = `window.RUMI_CUES = ${JSON.stringify(cues)};`;
     next = next.replace(CUE_TAG, (_all, open, _old, close) => `${open}${cueBody}${close}`);
   }
-  // Timing. A timing map describes ONE set of recordings. The edge-tts path rewrites
-  // rumi-clips.json and never writes timing, so after an edge run the timing file on disk
-  // describes clips that are no longer the ones being embedded — and a stale span cuts a word
-  // in half. So timing is written only when it is at least as new as the clip map, and it is
+  // Timing. A timing map describes ONE set of recordings. Both recorders write one now (the
+  // free voice since 2026-09-15), and either can rewrite rumi-clips.json — so a timing file
+  // left over from the other recorder describes clips that are no longer the ones being
+  // embedded, and a stale span cuts a word in half. Timing is written only when it is at least
+  // as new as the clip map, whoever wrote it, and it is
   // otherwise CLEARED, never left behind. The app double-checks each span against its buffer.
   let timed = 0;
   let timesNote = 'none';

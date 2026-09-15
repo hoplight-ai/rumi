@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect, normalizeKey, expand, readModules, FIXED_STRINGS, needsGloss, readGlyphs, collectCues } from './rumi-strings.mjs';
 import { HELP_LINES, collectEnglish } from './rumi-cues.mjs';
-import { wordSpans, spanMap } from './rumi-words.mjs';
+import { wordSpans, wordSpansFromMarks, spanMap } from './rumi-words.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(ROOT, 'rumi-espanol-app.html'), 'utf8');
@@ -36,7 +36,10 @@ const html = fs.readFileSync(path.join(ROOT, 'rumi-espanol-app.html'), 'utf8');
  *
  * CLEAR IT by running `npm run rumi:cues && npm run rumi:embed` on a machine with network and
  * deleting the entry. The assertion below fails if you record it and forget to delete it. */
-const PENDING_CUES = new Set(['numbers']);
+/* Cleared 2026-09-15 (RUMIVOICE1 phase B): the whole English bank was re-rendered on a machine
+ * with network, so "numbers" has its recording and the set is empty. The assertions below still
+ * stand, for the next string that arrives before its clip does. */
+const PENDING_CUES = new Set();
 
 let pass = 0;
 const fails = [];
@@ -731,6 +734,44 @@ ok('every CUE_KEY has a generated line', (() => {
     /function playWords\(/.test(html) && /function wordTiming\(/.test(html));
   ok('the slow speed no longer needs a device voice once timing exists',
     /function turtleUsable\(\)\{ return !!voice \|\| !CLIP_COUNT \|\| TIME_COUNT > 0; \}/.test(html));
+}
+
+/* ---- 13b. the free voice's own word timing (RUMIVOICE1 phase B, 2026-09-15) ----
+ * The ElevenLabs key turned out to be a free-plan key that cannot speak Spanish at all, so the
+ * recordings stay with the Microsoft voice Whit picked by ear in August — and that service
+ * returns one word-boundary event per word if you ask it for one. Same checks as above: this
+ * converter refuses everything it cannot line up, because a wrong span cuts a word in half. */
+{
+  const marks = {
+    text: 'Baja hacia la izquierda',
+    words: [
+      { text: 'Baja', start: 0.1, end: 0.77 },
+      { text: 'hacia', start: 0.79, end: 1.12 },
+      { text: 'la', start: 1.14, end: 1.27 },
+      { text: 'izquierda', start: 1.29, end: 2.16 },
+    ],
+  };
+  const sp = wordSpansFromMarks(marks.text, marks);
+  ok('free-voice timing: word boundaries convert to spans', Array.isArray(sp) && sp.length === 9);
+  ok('free-voice timing: the same flat shape the app already reads',
+    sp && sp[0] === 2.16 && sp[1] === 0.1 && sp[2] === 0.77);
+  ok('free-voice timing: a different word count is refused',
+    wordSpansFromMarks('Baja hacia la izquierda, pasa la raya', marks) === null);
+  ok('free-voice timing: a line the recording did not say is refused',
+    wordSpansFromMarks('Baja hacia la derecha', marks) === null);
+  ok('free-voice timing: punctuation the service drops is not a mismatch',
+    Array.isArray(wordSpansFromMarks('Baja hacia la izquierda,', marks)));
+  ok('free-voice timing: a word that ends before it starts is refused',
+    wordSpansFromMarks('Baja', { words: [{ text: 'Baja', start: 0.9, end: 0.4 }] }) === null);
+  ok('free-voice timing: no marks is no timing, not a crash',
+    wordSpansFromMarks('Baja', null) === null && wordSpansFromMarks('Baja', {}) === null);
+  /* One map, two recorders: whichever made a line, the app gets one format back. */
+  const fx = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'fixtures', 'eleven-baja-una-linea-grande.json'), 'utf8'));
+  const { map } = spanMap(
+    [{ key: 'a', text: marks.text }, { key: 'b', text: fx.text }],
+    { a: marks, b: fx.alignment });
+  ok('free-voice timing: one timing map holds both recorders',
+    Object.keys(map).length === 2 && Array.isArray(map.a) && Array.isArray(map.b));
 }
 
 console.log(`${pass} passed, ${fails.length} failed`);
