@@ -30,12 +30,64 @@ holds, so a fresh clone can run the gates but not the generators.
 ```bash
 npm run rumi:strings    # list the phrases the app asks for
 npm run rumi:extract    # rebuild build/ from the shipped page (reuse, never resynthesize)
-npm run rumi:audio      # render the Spanish clips
+npm run rumi:audio      # render the Spanish clips, and the word timing beside them
+                        # (needs python3 with edge-tts importable; see scripts/rumi-edge-words.py)
 npm run rumi:cues       # render the English cues (idle help + phrase glosses)
 npm run rumi:embed      # base64 both banks back into the app file
 npm run rumi:bakeoff    # rebuild the old edge-tts voice comparison page
 npm run rumi:11:bakeoff # rebuild the ElevenLabs listening page (the one served now)
 ```
+
+## Who records Rumi, and why it is still the Microsoft voice (RUMIVOICE1 phase B, 2026-09-15)
+
+**The voice did not change, and that is the finding, not a shortfall.** Re-probed on the real
+service on 2026-09-15: the key is still a free plan (9,489 credits left of 10,000), every native
+Spanish voice still answers 402 `paid_plan_required` at no charge, and designing one still answers
+403. Everything this key can actually speak with is an English speaker reading Spanish. Rumi's
+listener is five and learning the language by ear, the app has spoken Spain Spanish since August,
+and the brief's own default was to stay there — so swapping a native Spanish voice for an
+English-accented one to be able to say the word ElevenLabs would have made the app worse. **The
+recordings stay with `es-ES-XimenaNeural`, which Whit picked by ear on 2026-08-21.** The listening
+page and the ElevenLabs generator stay wired and unused; one paid month and a single re-run puts
+real Spanish candidates on that page. Total spent this lane: **0 credits.**
+
+**What was actually blocking the slow speed was never the voice — it was timing, and the free
+service gives that away.** The `edge-tts` command asks for sentence boundaries and merges its
+subtitles into one caption per line, which is why no timing existed. The library underneath it
+takes `boundary="WordBoundary"`, and the service then returns one event per word with an offset
+and a duration. `scripts/rumi-edge-words.py` calls it that way — same service, same voice, same
+rate, so the audio is byte-for-byte the audio this app already shipped — and keeps the half that
+was being thrown away. `rumi-words.mjs` turns either recorder's timing into the one flat shape the
+app reads, so a line's timing works whoever recorded it.
+
+So, for free, all three of the things the lane existed for:
+- **The 41 drawing instructions have recordings.** They were the only strings in the app with
+  none, which on an iPad with no Spanish voice made all 41 of them silence.
+- **The slow speed plays the real recording**, one word at a time, at rate 1 — never resampled —
+  on a device with no voices at all. `turtleUsable()` no longer needs one.
+- **Every Spanish line carries per-word timing**, not just the drawing instructions.
+
+**A cached clip is now only reused if its word marks are cached too.** The marks arrive with the
+audio and cannot be recovered from an mp3, so a clip recorded before this change has to be recorded
+once more to gain a slow speed. If `python3` cannot import the library the generator says so once
+and falls back to the command, and those clips simply play whole — today's behaviour, not a break.
+
+**A guard that was missing, found one run before it shipped.** `npm run rumi:embed` rebuilds the
+English cue map from `build/rumi-cues/`, and on a fresh clone that folder is empty — so the map is
+`{}`, the embed step replaces a tag holding 171 English recordings with nothing, and every gate
+stays green, because an app with no English audio is a structurally valid app. The child just stops
+being told what anything means. An empty cue map is now refused over a populated tag.
+
+**The English cues are not timed, deliberately.** Timing is what the slow speed reads, the slow
+speed is for decoding Spanish, and the English gloss is heard rather than repeated. Recording 171
+more marks would add bytes to a file with a ceiling for a control nothing reads.
+
+**The stroke-cue rate override still earns its place, and does not double-slow anything.**
+`TRACE_RATE` (0.55) now applies on exactly one path: a drawing instruction with no recording at
+all, spoken by a device voice. A recorded instruction plays at rate 1 either way, word by word when
+it has timing. Nothing is slowed twice. Whether word-by-word is *too* slow for an instruction said
+while her hand is moving is the one question here an ear has to answer, and it is one line to
+change: the `playWords()` call in `speakStroke()`.
 
 ## ElevenLabs, the slow speed, and the free plan (RUMIVOICE1, 2026-09-13)
 
