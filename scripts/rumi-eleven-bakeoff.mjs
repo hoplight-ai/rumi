@@ -108,6 +108,9 @@ const STOCK = [
 // key is in .env.local, re-running this script renders them and they appear on the page.
 const LIBRARY = [
   { id: '8gK5gnQBZnJWm1ta8R8X', name: 'Alma',        region: 'Spain', place: 'Spain', note: 'soft, warm, unhurried' },
+  // Added 2026-09-16, the first run on the grant key: the one Spain woman the library tags calm.
+  { id: 'b8hczxpWV1VCBo2sB5jd', name: 'Inés',        region: 'Spain', place: 'Spain', note: 'calm, friendly' },
+  { id: '00lYGnkUc4wUzH5cEKbo', name: 'Francesca',   region: 'Spain', place: 'Spain', note: 'warm, natural, a little older' },
   { id: 'eZxqQzb5CuYo3Kl6EXfZ', name: 'Sofía',       region: 'Spain', place: 'Spain', note: 'everyday, conversational' },
   { id: 'nH81SxhcPaX89XdDlp2m', name: 'Cristina',    region: 'Spain', place: 'Spain', note: 'casual, close to the microphone' },
   { id: 'SzSUM9aqTucCylaROOmf', name: 'Valeria',     region: 'Spain', place: 'Spain', note: 'clear and relaxed' },
