@@ -19,6 +19,7 @@ import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from 'no
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { VOICES, appTag, packPath } from './rumi-voices.mjs';
 
 const APP = 'rumi-espanol-app.html';
 
@@ -190,6 +191,11 @@ function walkMp3(b) {
   return { frames, consumed: i, why: null };
 }
 
+/* RUMIVOICES2: kept so section 9 can compare each downloadable voice's pack against the bank
+ * that ships inside the page. A pack short of a line is that line falling through to a device
+ * voice the target iPad does not have, i.e. silence, and nothing else would report it. */
+const embeddedBanks = {};
+
 for (const bank of BANKS) {
   const block = blocks.find(([, attrs]) => new RegExp(`id\\s*=\\s*["']${bank.id}["']`).test(attrs));
   if (!block) {
@@ -211,6 +217,7 @@ for (const bank of BANKS) {
     continue;
   }
 
+  embeddedBanks[bank.id] = table;
   const keys = Object.keys(table);
   if (keys.length >= bank.floor) ok(`audio bank populated: ${bank.id} — ${keys.length} clips (floor ${bank.floor})`);
   else bad(`audio bank populated: ${bank.id}`, `${keys.length} clips, below the floor of ${bank.floor}. A bank that shrank is a paste that truncated; nothing else in the app will tell you.`);
@@ -338,6 +345,109 @@ if (existsSync(BAKEOFF)) {
     const f = m[1].replace(/^\//, '');
     if (existsSync(f)) ok(`${BAKEOFF} -> ${m[1]} exists`);
     else bad(`${BAKEOFF} -> ${m[1]} exists`, `the head points at ${m[1]}, which is not in the repo`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 9. THE FIVE VOICES (RUMIVOICES2, 2026-09-16). Whit: "why make me choose? let the user have
+//    like 5 options in the settings."
+//
+//    One voice is inside the page (section 4 walked every one of its clips). The other four are
+//    static JSON files beside it, downloaded the once a grown-up picks one. That makes three new
+//    ways to ship a settings screen that is a lie, none of which any existing assertion sees:
+//
+//    a) A name in the app that has no file. The grown-up taps it, nothing arrives, and the app
+//       falls back — correct behaviour, for a voice that should never have been offered.
+//    b) A pack that is SHORT. The lines it is missing have no recording in that voice, so they
+//       fall through to the device's own Spanish voice, which on the iPad this app exists for
+//       does not exist. The page looks perfect and those phrases are silence.
+//    c) A truncated clip inside a pack, which is exactly the failure assertions 4 and 5 were
+//       written for, moved out of the page and into a file nothing was walking.
+//
+//    The registry is compared byte for byte against scripts/rumi-voices.mjs, which is what the
+//    generator and the pack builder read, so the four copies of this list cannot drift apart.
+// ---------------------------------------------------------------------------
+{
+  const shipped = html.match(/<script id="rumiVoices">[\s\S]*?<\/script>/);
+  if (!shipped) {
+    bad('the app carries its voice registry', 'no <script id="rumiVoices"> block — the settings screen will list no voices at all and the app is stuck on whatever is embedded');
+  } else if (shipped[0] === appTag()) {
+    ok(`voice registry matches scripts/rumi-voices.mjs (${VOICES.length} voices)`);
+  } else {
+    bad('voice registry matches scripts/rumi-voices.mjs',
+      'the block in the app and the list in scripts/rumi-voices.mjs disagree. Regenerate it with '
+      + '`node scripts/rumi-voices.mjs --tag` and paste it over the block. A name in one and not '
+      + 'the other is either a voice a grown-up can tap that downloads a file nobody wrote, or a '
+      + 'pack sitting on the server that nothing offers.');
+  }
+
+  const embedded = VOICES.filter((v) => v.embedded);
+  if (embedded.length === 1) ok(`exactly one voice is embedded in the page: ${embedded[0].name}`);
+  else bad('exactly one voice is embedded in the page', `${embedded.length} are marked embedded. The page holds one voice's clips and falls back to it whenever a download fails; zero means no fallback and two means the file is twice the size it can be.`);
+
+  const bank = embeddedBanks.rumiClips;
+  const wanted = bank ? Object.keys(bank) : [];
+  for (const v of VOICES.filter((x) => !x.embedded)) {
+    const file = packPath(v.slug);
+    if (!existsSync(file)) {
+      bad(`voice pack present: ${file}`, `${v.name} is offered in the settings screen and has no pack beside the page. Run \`npm run rumi:11:packs\`.`);
+      continue;
+    }
+    let pack = null;
+    try {
+      pack = JSON.parse(readFileSync(file, 'utf8'));
+      ok(`json parses: ${file} (${(readFileSync(file).length / 1048576).toFixed(2)} MB)`);
+    } catch (e) {
+      bad(`json parses: ${file}`, `${e.message} — the fetch succeeds, the parse throws, and the app falls back to the embedded voice for a reason nobody can see`);
+      continue;
+    }
+    if (pack.voice === v.slug) ok(`${file} names itself ${v.slug}`);
+    else bad(`${file} names itself ${v.slug}`, `it says "${pack.voice}" — two voices' files have been swapped, and a grown-up tapping one name hears the other`);
+
+    const clips = (pack.clips && typeof pack.clips === 'object') ? pack.clips : {};
+    const short = wanted.filter((k) => typeof clips[k] !== 'string' || clips[k].length === 0);
+    if (!wanted.length) {
+      bad(`${file} covers every line the embedded voice does`, 'the embedded bank could not be read, so there is nothing to compare against');
+    } else if (short.length === 0) {
+      ok(`${file} covers every line the embedded voice does (${wanted.length})`);
+    } else {
+      bad(`${file} covers every line the embedded voice does`,
+        `${short.length} of ${wanted.length} missing: ${short.slice(0, 6).join(', ')}${short.length > 6 ? ` … and ${short.length - 6} more` : ''}. Those phrases fall through to the device's Spanish voice, which on the target iPad is silence.`);
+    }
+
+    // Same frame walk as assertion 5, on the clips that live outside the page.
+    const ragged = [];
+    let bytes = 0;
+    for (const k of Object.keys(clips)) {
+      const s = clips[k];
+      if (typeof s !== 'string' || !s.length) { ragged.push(`${k} (empty)`); continue; }
+      let buf;
+      try { buf = Buffer.from(s, 'base64'); } catch { ragged.push(`${k} (not base64)`); continue; }
+      bytes += buf.length;
+      const w = walkMp3(buf);
+      if (w.why) ragged.push(`${k} (${buf.length}B, ${w.why} after ${w.frames} frames)`);
+      else if (w.consumed !== buf.length) ragged.push(`${k} (${buf.length}B, frames tile only ${w.consumed}B — cut short)`);
+      else if (w.frames === 0) ragged.push(`${k} (${buf.length}B, zero audio frames)`);
+    }
+    if (ragged.length === 0) ok(`every clip is a complete mp3: ${file} — ${Object.keys(clips).length} clips, ${(bytes / 1048576).toFixed(2)} MB, frames tile to the byte`);
+    else bad(`every clip is a complete mp3: ${file}`,
+      `${ragged.length} of ${Object.keys(clips).length} are not complete playable audio: ${ragged.slice(0, 6).join(', ')}. These play silence or cut off mid-word, and the child cannot report it.`);
+
+    // Timing describes lines that are actually in the pack, or it cuts words in half.
+    const times = (pack.times && typeof pack.times === 'object') ? pack.times : {};
+    const orphanTimes = Object.keys(times).filter((k) => !Object.prototype.hasOwnProperty.call(clips, k));
+    if (orphanTimes.length === 0) ok(`${file} timing describes only clips it carries (${Object.keys(times).length} timed)`);
+    else bad(`${file} timing describes only clips it carries`, `${orphanTimes.length} timing entries have no clip: ${orphanTimes.slice(0, 5).join(', ')}`);
+  }
+
+  // The packs are machine-generated bulk, so the folder carries the marker that keeps Spotlight
+  // out of it (root .claude/rules/served-pages.md).
+  if (!VOICES.some((v) => !v.embedded)) {
+    // no packs, nothing to mark
+  } else if (existsSync('voices/.metadata_never_index')) {
+    ok('voices/ carries .metadata_never_index');
+  } else {
+    bad('voices/ carries .metadata_never_index', 'the folder holds machine-generated bulk and must carry the marker, per .claude/rules/served-pages.md');
   }
 }
 

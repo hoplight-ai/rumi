@@ -134,8 +134,18 @@ ok('resume is reachable outside the unlock overlay',
    /addEventListener\("pointerdown", \(\) => \{\s*ensureAudio\(\);/.test(html));
 ok('coming back into view revives the audio',
    /addEventListener\("visibilitychange"[\s\S]*?\}else\{\s*ensureAudio\(\);/.test(html));
+/* RUMIVOICES2, 2026-09-16: this went red on a correct build and had to be retuned rather than
+   deleted. The rule it holds is unchanged — speak() must not conclude it has no clip until the
+   audio route has actually been revived, because concluding early falls through to a device
+   voice the target iPad does not have. What changed is what comes FIRST: speak() now also waits
+   on voiceReady, so a voice chosen in Grown-ups is restored from the device before the first
+   word. The shape is `voiceReady.then(() => ensureAudio()).then(` instead of `ensureAudio().then(`.
+   Both are accepted below, and both satisfy the original rule; a build that decides synchronously
+   still fails. */
 ok('speak WAITS for the revived context before deciding it has no clip',
-   /function speak\(text, done\)\{[\s\S]*?ensureAudio\(\)\.then\(/.test(html));
+   /function speak\(text, done\)\{[\s\S]*?(?:voiceReady\.then\(\(\) => ensureAudio\(\)\)|ensureAudio\(\))\.then\(/.test(html));
+ok('speak also waits for a voice saved in Grown-ups, so the first word after a reload is hers',
+   /function speak\(text, done\)\{[\s\S]*?voiceReady\.then\(\(\) => ensureAudio\(\)\)\.then\(/.test(html));
 ok('ensureAudio reports a promise, because resume() is async',
    /return p\.then\(\(\) => \{ syncMuteButton\(\); return audioReady\(\); \}, \(\) => false\);/.test(html));
 ok('a clip that never ends still finishes the card',
