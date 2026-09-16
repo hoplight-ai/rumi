@@ -460,6 +460,171 @@ ok('unmuting retakes the audio session',
   await page.evaluate(() => { S.speed = 'walk'; stopSpeech(); });
 }
 
+/* ---- 4e. five voices, chosen in Grown-ups (RUMIVOICES2, 2026-09-16) ----
+ * Whit: "why make me choose? let the user have like 5 options in the settings". One voice is
+ * built into the page so the app works offline on first load; the other four are downloaded
+ * when a grown-up picks one, kept on the device, and restored before the first word on every
+ * later load. A voice that cannot be had (offline, never downloaded) must fall back to the
+ * built-in one silently, never to silence.
+ *
+ * Served over http, not file://, because the page fetches the pack and device storage wants a
+ * real origin. The pack is a synthetic one served by the test: every line is the fixture clip,
+ * whose length differs from the built-in "Gracias", so which voice actually played is a
+ * measurement rather than a guess. The real pack files are checked separately at the end.
+ *
+ * Observed RED against 68beda6 (the build this lane started from): Grown-ups listed 0 voices,
+ * nothing fetched a pack, nothing was remembered, and there was no fallback to observe. The
+ * full red run is in _handoffs/done-2026-09-16-rumi-rumivoices2-five-voices-in.md. */
+{
+  const http = await import('node:http');
+  const ROOT = resolve(here, '..');
+  const TYPES = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.png': 'image/png' };
+  const server = http.createServer((req, res) => {
+    const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '');
+    const f = resolve(ROOT, rel || 'rumi-espanol-app.html');
+    if (!f.startsWith(ROOT) || !existsSync(f)) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': TYPES[f.slice(f.lastIndexOf('.'))] || 'application/octet-stream' });
+    res.end(readFileSync(f));
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const BASE = `http://127.0.0.1:${server.address().port}`;
+
+  const fx = JSON.parse(readFileSync(resolve(here, 'fixtures', 'eleven-baja-una-linea-grande.json'), 'utf8'));
+  /* Only the key list and the ONE clip this case measures against cross the bridge. Shipping
+   * the whole 7MB map back into node takes seconds and proves nothing extra. */
+  const keys = await page.evaluate(() => Object.keys(window.RUMI_CLIPS || {}));
+  const graciasB64 = await page.evaluate(() => (window.RUMI_CLIPS || {}).gracias || '');
+  const pack = { voice: 'alma', clips: Object.fromEntries(keys.map((k) => [k, fx.mp3_base64])), times: {} };
+  let packHits = 0;
+  const servePack = (cx) => cx.route('**/voices/alma.json', (r) => {
+    packHits += 1;
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pack) });
+  });
+
+  const durOf = (p, b64) => p.evaluate(async (s) => {
+    if (!s) return null;
+    const bin = atob(s);
+    const a = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) a[i] = bin.charCodeAt(i);
+    const c = new OfflineAudioContext(1, 1, 22050);
+    const b = await c.decodeAudioData(a.buffer);
+    return +b.duration.toFixed(2);
+  }, b64);
+  const lastDur = async (p) => {
+    const st = audible((await p.evaluate(() => window.__a)).starts);
+    return st.length ? st[st.length - 1].dur : null;
+  };
+  const near = (x, y) => x !== null && y !== null && Math.abs(x - y) < 0.06;
+  const sayGracias = async (p) => {
+    await p.evaluate(() => { stopSpeech(); S.speed = 'walk'; window.__a.starts = []; speak('Gracias'); });
+    await p.waitForTimeout(1500);
+    return lastDur(p);
+  };
+  const boot = async (p) => {
+    p.on('pageerror', (e) => console.log(`      pageerror: ${e.message.slice(0, 200)}`));
+    await p.addInitScript(INSTRUMENT);
+    await p.goto(`${BASE}/rumi-espanol-app.html`);
+    await p.waitForTimeout(500);
+    await p.click('#unlockBtn');
+    await p.waitForTimeout(300);
+  };
+
+  const cx = await browser.newContext();
+  await servePack(cx);
+  const v = await cx.newPage();
+  await boot(v);
+  const fxDur = await durOf(v, fx.mp3_base64);
+  const builtInDur = await durOf(v, graciasB64);
+  console.log(`      built-in "Gracias" ${builtInDur}s, test pack clip ${fxDur}s`);
+  /* If these two were the same length every assertion below would pass on a build that never
+   * swapped anything, so the case has to prove its own instrument first. */
+  ok('the two voices in this case are distinguishable by ear-length',
+     fxDur !== null && builtInDur !== null && Math.abs(fxDur - builtInDur) > 0.2,
+     `pack clip ${fxDur}s vs built-in ${builtInDur}s — too close to tell apart`);
+
+  await v.click('#toSettings');
+  await v.waitForTimeout(300);
+  const rows = await v.$$eval('#voiceList .voiceopt', (els) => els.map((e) => ({ slug: e.dataset.voice, text: e.textContent })));
+  ok(`Grown-ups lists five voices (${rows.length})`, rows.length === 5, JSON.stringify(rows));
+  ok('every voice says where it is from, Spain or Latin America',
+     rows.length === 5 && rows.every((r) => /Spain|Latin America/.test(r.text)), JSON.stringify(rows));
+  ok('the built-in voice is the one selected on a fresh device',
+     await v.evaluate(() => { const e = document.querySelector('#voiceList .voiceopt.on'); return !!e && e.dataset.voice === 'ines'; }));
+
+  await v.evaluate(() => { window.__a.starts = []; });
+  const almaRow = await v.$('#voiceList .voiceopt[data-voice="alma"]');
+  if (almaRow) await almaRow.click();
+  await v.waitForTimeout(3000);
+  ok('choosing a downloadable voice fetches its pack once', packHits === 1, `requests: ${packHits}`);
+  ok('the chosen voice is marked selected',
+     await v.evaluate(() => { const e = document.querySelector('#voiceList .voiceopt.on'); return !!e && e.dataset.voice === 'alma'; }));
+  ok('tapping a voice plays a sample of that voice', near(await lastDur(v), fxDur),
+     `last start ${await lastDur(v)}s, pack clip ${fxDur}s`);
+  const after = await sayGracias(v);
+  ok('after choosing it, Rumi speaks with the chosen voice', near(after, fxDur), `played ${after}s, pack clip ${fxDur}s`);
+  ok('the choice is remembered', await v.evaluate(() => { try { return localStorage.getItem('rumi.voice') === 'alma'; } catch (e) { return false; } }));
+
+  /* Reload with the network for voices cut: the voice must come back from the device. */
+  await cx.unroute('**/voices/alma.json');
+  await cx.route('**/voices/**', (r) => r.abort());
+  await v.reload();
+  await v.waitForTimeout(800);
+  await v.click('#unlockBtn');
+  await v.waitForTimeout(300);
+  const restored = await sayGracias(v);
+  ok('the chosen voice survives a reload, from the device, with no network', near(restored, fxDur),
+     `played ${restored}s, pack clip ${fxDur}s, built-in ${builtInDur}s`);
+  await cx.close();
+
+  /* A voice that cannot be downloaded: the built-in voice carries on and the setting says so. */
+  const cf = await browser.newContext();
+  await cf.route('**/voices/**', (r) => r.abort());
+  const w = await cf.newPage();
+  await boot(w);
+  await w.click('#toSettings');
+  await w.waitForTimeout(300);
+  const valRow = await w.$('#voiceList .voiceopt[data-voice="valeria"]');
+  if (valRow) await valRow.click();
+  await w.waitForTimeout(2500);
+  const fb = await sayGracias(w);
+  ok('a failed download falls back to the built-in voice, not to silence', near(fb, builtInDur),
+     `played ${fb}s, built-in ${builtInDur}s`);
+  ok('the setting shows the built-in voice is the one in use',
+     await w.evaluate(() => {
+       const on = document.querySelector('#voiceList .voiceopt.on');
+       const note = (document.getElementById('voiceNote') || {}).textContent || '';
+       return !!on && on.dataset.voice === 'ines' && /Valeria/.test(note);
+     }));
+
+  /* A saved choice that is not on the device and cannot be fetched, at boot. */
+  await w.evaluate(() => { try { localStorage.setItem('rumi.voice', 'sofia'); } catch (e) { /* keep going */ } });
+  await w.reload();
+  await w.waitForTimeout(1200);
+  await w.click('#unlockBtn');
+  await w.waitForTimeout(300);
+  const fb2 = await sayGracias(w);
+  ok('a saved voice that cannot be had at startup falls back to the built-in voice', near(fb2, builtInDur),
+     `played ${fb2}s, built-in ${builtInDur}s`);
+  await cf.close();
+
+  /* The real files, on disk and served: every downloadable voice has a pack beside the page,
+   * and it covers the same lines the built-in one does. A pack short of a line is that line
+   * falling back to a device voice, i.e. to silence on the iPad this app exists for. */
+  const registry = await page.evaluate(() => (window.RUMI_VOICES || []).map((x) => ({ slug: x.slug, embedded: !!x.embedded })));
+  ok(`the app carries a registry of five voices (${registry.length})`, registry.length === 5, JSON.stringify(registry));
+  ok('exactly one of them is the built-in voice',
+     registry.filter((x) => x.embedded).length === 1, JSON.stringify(registry));
+  for (const r of registry.filter((x) => !x.embedded)) {
+    /* eslint-disable no-await-in-loop */
+    const real = await fetch(`${BASE}/voices/${r.slug}.json`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
+    const n = real ? Object.keys(real.clips || {}).length : 0;
+    ok(`the real pack is served beside the page (voices/${r.slug}.json, ${n} clips)`,
+       n === keys.length, real ? `${n} clips vs ${keys.length} built in` : 'not served');
+    /* eslint-enable no-await-in-loop */
+  }
+  server.close();
+}
+
 /* ---- 5. the setting survives a reload, which is how all three bugs became permanent ---- */
 await page.reload();
 await page.waitForTimeout(500);

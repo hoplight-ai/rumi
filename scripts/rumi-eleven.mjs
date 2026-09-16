@@ -30,6 +30,7 @@
 //   node scripts/rumi-eleven.mjs --cues              render the 171 English cues
 //   node scripts/rumi-eleven.mjs --map               write the json maps from what exists
 //   node scripts/rumi-eleven.mjs --limit 5           sample run, for listening before committing
+//   node scripts/rumi-eleven.mjs --voice <id>        render with that voice instead of RUMI_ES_VOICE
 //
 // The key is read from the environment, never from the command line:
 //   node --env-file=.env.local scripts/rumi-eleven.mjs
@@ -51,6 +52,15 @@ const API = 'https://api.elevenlabs.io';
 export const ES_VOICE = process.env.RUMI_ES_VOICE || '';
 export const EN_VOICE = process.env.RUMI_EN_VOICE || '';
 
+// RUMIVOICES2, 2026-09-16: Rumi ships five Spanish voices now, so one run of this script is one
+// voice and the caller says which. `--voice <id>` and setVoice() both land here; the environment
+// variable stays the default so every existing command keeps working unchanged. It applies to
+// the Spanish bank only — the English cues have one voice and are not part of the picker.
+let esVoiceOverride = '';
+/** Point the Spanish bank at a different voice for the rest of this process. */
+export function setVoice(id) { esVoiceOverride = String(id || ''); }
+export function currentVoice() { return esVoiceOverride || ES_VOICE; }
+
 // eleven_multilingual_v2 is the stable, best-quality multilingual model and it honours
 // voice_settings.speed. eleven_v3 is more expressive and takes inline direction but its
 // settings surface differs; switch with RUMI_11_MODEL once a bake-off has been heard.
@@ -71,13 +81,13 @@ export const SPEED = Number(process.env.RUMI_11_SPEED || 0.7);
 // turtle mode and word highlighting use the real recording instead of a device voice.
 const WITH_TIMESTAMPS = !process.env.RUMI_11_NO_TIMESTAMPS;
 
-const BANKS = {
+export const BANKS = {
   es: {
     label: 'spanish',
     dir: path.join(ROOT, 'build', 'rumi-clips-11'),
     map: path.join(ROOT, 'build', 'rumi-clips.json'),
     times: path.join(ROOT, 'build', 'rumi-times.json'),
-    voice: () => ES_VOICE,
+    voice: () => currentVoice(),
     lang: 'es',
     items: (html) => collect(html),
   },
@@ -167,20 +177,30 @@ async function synth(text, voice, lang, dest) {
   return { bytes: audio.length, alignment };
 }
 
-function writeMaps(bank, items) {
+/** Read a rendered bank off disk into memory: the base64 clips and the raw per-character timing
+ *  the service returned beside each one. Split out of writeMaps() by RUMIVOICES2 so the pack
+ *  builder can take the same bytes for a voice that is NOT the embedded one, without writing
+ *  build/rumi-clips.json and thereby making that voice the app's. */
+export function readBank(bank, items, voiceId) {
   const clips = {};
   const times = {};
   let bytes = 0;
-  const voice = bank.voice();
+  const missing = [];
+  const voice = voiceId || bank.voice();
   for (const it of items) {
     const f = path.join(bank.dir, clipFile(it.key, voice));
-    if (!fs.existsSync(f)) continue;
+    if (!fs.existsSync(f)) { missing.push(it.key); continue; }
     const buf = fs.readFileSync(f);
     bytes += buf.length;
     clips[it.key] = buf.toString('base64');
     const t = `${f}.json`;
     if (fs.existsSync(t)) times[it.key] = JSON.parse(fs.readFileSync(t, 'utf8'));
   }
+  return { clips, times, bytes, missing };
+}
+
+export function writeMaps(bank, items) {
+  const { clips, times, bytes } = readBank(bank, items);
   fs.writeFileSync(bank.map, JSON.stringify(clips));
   if (Object.keys(times).length) fs.writeFileSync(bank.times, JSON.stringify(times));
   return { count: Object.keys(clips).length, bytes, timed: Object.keys(times).length };
@@ -198,7 +218,7 @@ function estimate(html) {
   return { rows, total };
 }
 
-async function renderBank(bank, items, limit) {
+export async function renderBank(bank, items, limit) {
   const voice = bank.voice();
   if (!voice) {
     throw new Error(
@@ -245,6 +265,12 @@ async function main() {
   const bank = args.includes('--cues') ? BANKS.en : BANKS.es;
   const limitArg = args.indexOf('--limit');
   const limit = limitArg >= 0 ? Number(args[limitArg + 1]) : Infinity;
+  const voiceArg = args.indexOf('--voice');
+  if (voiceArg >= 0) {
+    const id = args[voiceArg + 1];
+    if (!id || id.startsWith('--')) throw new Error('--voice needs a voice id after it');
+    setVoice(id);
+  }
 
   if (args.includes('--estimate')) {
     const { rows, total } = estimate(html);

@@ -12,12 +12,14 @@ Vercel generated for this project is the one that counts; do not guess it from t
 
 | Path | What it is |
 |---|---|
-| `rumi-espanol-app.html` | the whole app, 8,483,696 bytes |
+| `rumi-espanol-app.html` | the whole app, 5,781,959 bytes |
 | `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
+| `voices/<name>.json` | the four voices that are not inside the page, downloaded on demand |
+| `scripts/rumi-voices.mjs` | the one list of the five voices. Four things read it; none keeps a copy |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
-| `scripts/ci-check.mjs` | the structural gate. 35 assertions, no network, no dependencies |
-| `scripts/rumi-unit-test.mjs` | the behavioural suite. 187 assertions over the real shipped corpus |
-| `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. Drives a real browser — see below |
+| `scripts/ci-check.mjs` | the structural gate. 59 assertions, no network, no dependencies |
+| `scripts/rumi-unit-test.mjs` | the behavioural suite. 196 assertions over the real shipped corpus |
+| `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. 58 assertions in a real browser — see below |
 | `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
 | `.github/workflows/ci.yml` | runs both gates on every push |
 
@@ -36,9 +38,58 @@ npm run rumi:cues       # render the English cues (idle help + phrase glosses)
 npm run rumi:embed      # base64 both banks back into the app file
 npm run rumi:bakeoff    # rebuild the old edge-tts voice comparison page
 npm run rumi:11:bakeoff # rebuild the ElevenLabs listening page (the one served now)
+npm run rumi:11:packs   # record all five voices, embed one, write the other four (see below)
 ```
 
-## Who records Rumi, and why it is still the Microsoft voice (RUMIVOICE1 phase B, 2026-09-15)
+## Rumi's five voices, and which one is inside the page (RUMIVOICES2, 2026-09-16)
+
+**Rumi speaks with five native Spanish women now, and a grown-up picks one in Grown-ups.** Four
+read Spain Spanish, one reads Latin American. Whit, 2026-09-16: *"why make me choose? let the user
+have like 5 options in the settings."* The Microsoft voice this app used from August is gone; every
+one of these is a real Spanish speaker, which the previous key could not buy at any price.
+
+| Name | From | Where her recordings live |
+|---|---|---|
+| Inés | Spain, calm | inside `rumi-espanol-app.html` |
+| Alma | Spain, warm | `voices/alma.json` |
+| Valeria | Spain, clear | `voices/valeria.json` |
+| Sofía | Spain, natural | `voices/sofia.json` |
+| Daniela | Latin America, bright | `voices/daniela.json` |
+
+**Inés is the default by reading, not by ear, and that is worth saying out loud.** The library
+tags her calm and she reads slowest, which is what a five-year-old decoding a new language needs.
+Nobody has heard her against the other four. Any of them is one tap away, so the choice was never
+worth a question.
+
+**Why one voice is inside the file and four are not.** `scripts/rumi-embed.mjs` refuses to write an
+app over 10,485,760 bytes and one voice's recordings are about two megabytes of base64 inside the
+page. Five would be ten. So one voice ships in the file — which is what makes the app open and talk
+the first time, offline, on bad wifi, the whole reason this app is a single file — and the other
+four are plain JSON files beside it, fetched the one time a grown-up picks one and then kept on the
+device in Cache Storage. On every later load the chosen voice comes back off the device before the
+first word, never off the network.
+
+**A voice that cannot be had is never silence.** A failed download, a pack that arrives short of a
+line, storage refusing, a saved name whose file has gone: all of them land back on Inés and the
+settings screen names the voice that did not arrive. A pack missing even one line is rejected
+whole, because the lines it lacks would fall through to the device's own Spanish voice, and on the
+iPad this app exists for there is no such voice. Half a voice is worse than one voice.
+
+**Both slow speeds work for all five.** Each pack carries its own per-word timing, already
+converted to the spans the app reads, so the turtle speed plays that voice's real recording one
+word at a time exactly as the embedded one does.
+
+**Regenerating.** `npm run rumi:11:packs` records all five, writes the four packs, embeds Inés and
+runs the ordinary embed gate. It never touches the English cue map: `npm run rumi:11:embed` also
+rebuilds that map from an empty `build/`, which used to replace 171 English recordings with
+nothing. Use `rumi:11:packs`, not `rumi:11:embed`, on a fresh clone.
+
+**The gate.** `npm run check` compares the list in the page against `scripts/rumi-voices.mjs`, and
+walks every clip in every pack frame by frame the same way it walks the ones in the page. A name in
+one list and not the other fails. So does a pack short of a line, and so does a clip cut off
+mid-word.
+
+## Who recorded Rumi before, and why it was the Microsoft voice (RUMIVOICE1 phase B, 2026-09-15)
 
 **The voice did not change, and that is the finding, not a shortfall.** Re-probed on the real
 service on 2026-09-15: the key is still a free plan (9,489 credits left of 10,000), every native
@@ -347,8 +398,8 @@ callback) and no trim ships without a human listening to a sample first.
 
 ## The gates, and the one assertion that matters
 
-`npm run check` — 22 assertions, runs in about a second, needs nothing installed.
-`npm run test:rumi` — 144 more, over the real shipped corpus, also with no network. 140 of them
+`npm run check` — 59 assertions, runs in about a second, needs nothing installed.
+`npm run test:rumi` — 196 more, over the real shipped corpus, also with no network. Four fewer
 when the `letters` sibling checkout is not on disk, and it says so out loud.
 
 Most of it is ordinary: the file is present, the inline scripts parse, the stylesheet is non-empty,
