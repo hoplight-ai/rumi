@@ -5,16 +5,20 @@
 # for a decision only the repo owner can make.
 #
 # WHY THIS ONE IS NOT THE NODE TEMPLATE. hoplight-ai/repo-template ships a build-only `npm ci &&
-# npm run build` job. This repo has no package.json and no build step at all: it is one 7 MB
-# rumi-espanol-app.html with the markup, the styles, the app logic and 304 base64-encoded audio
-# clips all inline, served straight off Vercel. Dropping the node template here would produce a
-# workflow that is red on every push forever, which is worse than no workflow, because a check
+# npm run build` job, which assumes a compiled output this repo does not produce. Corrected
+# 2026-09-17 (RUMITIDY1): this repo DOES have a package.json with real scripts (rumi:11:packs,
+# rumi:voices, etc.) and a real generator pipeline under scripts/ — the false claim that neither
+# existed dated back to before that pipeline landed and was never fixed. What is still true, and
+# is the actual reason this workflow is not the node template, is that there is nothing here to
+# `npm ci` or `npm run build`: rumi-espanol-app.html is a static, hand-shipped file (one voice's
+# audio embedded inline, the other four in `voices/`) with no compiled output, so a build-only
+# job would be red on every push forever, which is worse than no workflow, because a check
 # nobody can make green stops being read within a week.
 #
-# What `scripts/ci-check.mjs` gates instead is the failure this app actually has: a hand-edit that
-# breaks an inline <script>, or an audio bank that lost or truncated clips. The second one is the
-# reason this file exists — a cut clip renders a perfect page and plays silence, the user is five
-# years old, and nothing else in the world will report it.
+# What `scripts/ci-check.mjs` gates instead is the failure a static, hand-edited HTML file actually
+# has: a hand-edit that breaks an inline <script>, or an audio bank that lost or truncated clips.
+# The second one is the reason this file exists — a cut clip renders a perfect page and plays
+# silence, the user is five years old, and nothing else in the world will report it.
 #
 # Observed green (17 assertions) and observed red three separate ways — a clip truncated mid-file,
 # a syntax error in the app block, and an index.html appearing — locally on 2026-08-21 before this

@@ -15,11 +15,13 @@
 //
 // Exits non-zero if any assertion fails, and prints what it checked either way.
 
-import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync, readdirSync,
+} from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { VOICES, appTag, packPath } from './rumi-voices.mjs';
+import { VOICES, appTag, packDir, packIndexPath, packClipPath } from './rumi-voices.mjs';
 
 const APP = 'rumi-espanol-app.html';
 
@@ -349,20 +351,23 @@ if (existsSync(BAKEOFF)) {
 }
 
 // ---------------------------------------------------------------------------
-// 9. THE FIVE VOICES (RUMIVOICES2, 2026-09-16). Whit: "why make me choose? let the user have
-//    like 5 options in the settings."
+// 9. THE FIVE VOICES (RUMIVOICES2, 2026-09-16; per-clip files, RUMITIDY1, 2026-09-17).
+//    Whit: "why make me choose? let the user have like 5 options in the settings."
 //
 //    One voice is inside the page (section 4 walked every one of its clips). The other four are
-//    static JSON files beside it, downloaded the once a grown-up picks one. That makes three new
-//    ways to ship a settings screen that is a lie, none of which any existing assertion sees:
+//    a small index plus one mp3 per clip, downloaded the once a grown-up picks one. That makes
+//    four new ways to ship a settings screen that is a lie, none of which any existing assertion
+//    sees:
 //
-//    a) A name in the app that has no file. The grown-up taps it, nothing arrives, and the app
+//    a) A name in the app that has no folder. The grown-up taps it, nothing arrives, and the app
 //       falls back — correct behaviour, for a voice that should never have been offered.
-//    b) A pack that is SHORT. The lines it is missing have no recording in that voice, so they
+//    b) An index that is SHORT. The lines it is missing have no recording in that voice, so they
 //       fall through to the device's own Spanish voice, which on the iPad this app exists for
 //       does not exist. The page looks perfect and those phrases are silence.
-//    c) A truncated clip inside a pack, which is exactly the failure assertions 4 and 5 were
-//       written for, moved out of the page and into a file nothing was walking.
+//    c) A clip file that does not match what the index promised — missing, truncated, or a byte
+//       size that disagrees with the number the app trusted before it fetched anything.
+//    d) An orphan clip file: rendered once, no longer named by the index, sitting in the repo
+//       doing nothing but costing bytes nobody serves on purpose.
 //
 //    The registry is compared byte for byte against scripts/rumi-voices.mjs, which is what the
 //    generator and the pack builder read, so the four copies of this list cannot drift apart.
@@ -388,60 +393,84 @@ if (existsSync(BAKEOFF)) {
   const bank = embeddedBanks.rumiClips;
   const wanted = bank ? Object.keys(bank) : [];
   for (const v of VOICES.filter((x) => !x.embedded)) {
-    const file = packPath(v.slug);
-    if (!existsSync(file)) {
-      bad(`voice pack present: ${file}`, `${v.name} is offered in the settings screen and has no pack beside the page. Run \`npm run rumi:11:packs\`.`);
+    const dir = packDir(v.slug);
+    const indexFile = packIndexPath(v.slug);
+    if (!existsSync(indexFile)) {
+      bad(`voice index present: ${indexFile}`, `${v.name} is offered in the settings screen and has no index beside the page. Run \`npm run rumi:11:packs\`.`);
       continue;
     }
-    let pack = null;
+    let index = null;
     try {
-      pack = JSON.parse(readFileSync(file, 'utf8'));
-      ok(`json parses: ${file} (${(readFileSync(file).length / 1048576).toFixed(2)} MB)`);
+      index = JSON.parse(readFileSync(indexFile, 'utf8'));
+      ok(`json parses: ${indexFile}`);
     } catch (e) {
-      bad(`json parses: ${file}`, `${e.message} — the fetch succeeds, the parse throws, and the app falls back to the embedded voice for a reason nobody can see`);
+      bad(`json parses: ${indexFile}`, `${e.message} — the fetch succeeds, the parse throws, and the app falls back to the embedded voice for a reason nobody can see`);
       continue;
     }
-    if (pack.voice === v.slug) ok(`${file} names itself ${v.slug}`);
-    else bad(`${file} names itself ${v.slug}`, `it says "${pack.voice}" — two voices' files have been swapped, and a grown-up tapping one name hears the other`);
+    if (index.voice === v.slug) ok(`${indexFile} names itself ${v.slug}`);
+    else bad(`${indexFile} names itself ${v.slug}`, `it says "${index.voice}" — two voices' indexes have been swapped, and a grown-up tapping one name hears the other`);
 
-    const clips = (pack.clips && typeof pack.clips === 'object') ? pack.clips : {};
-    const short = wanted.filter((k) => typeof clips[k] !== 'string' || clips[k].length === 0);
+    const entries = (index.clips && typeof index.clips === 'object') ? index.clips : {};
+    const short = wanted.filter((k) => !entries[k] || typeof entries[k].file !== 'string');
     if (!wanted.length) {
-      bad(`${file} covers every line the embedded voice does`, 'the embedded bank could not be read, so there is nothing to compare against');
+      bad(`${indexFile} covers every line the embedded voice does`, 'the embedded bank could not be read, so there is nothing to compare against');
     } else if (short.length === 0) {
-      ok(`${file} covers every line the embedded voice does (${wanted.length})`);
+      ok(`${indexFile} covers every line the embedded voice does (${wanted.length})`);
     } else {
-      bad(`${file} covers every line the embedded voice does`,
+      bad(`${indexFile} covers every line the embedded voice does`,
         `${short.length} of ${wanted.length} missing: ${short.slice(0, 6).join(', ')}${short.length > 6 ? ` … and ${short.length - 6} more` : ''}. Those phrases fall through to the device's Spanish voice, which on the target iPad is silence.`);
     }
 
-    // Same frame walk as assertion 5, on the clips that live outside the page.
+    // Every clip file the index names: on disk, its byte size matching what the index promised
+    // (a fetch that trusts a wrong number before it downloads is the failure indexUsable() in
+    // the app exists to prevent), and a complete, unbroken mp3 — the same frame walk assertion
+    // 5 runs on the embedded voice, now run on the files that live outside the page.
     const ragged = [];
+    const wantedFiles = new Set();
     let bytes = 0;
-    for (const k of Object.keys(clips)) {
-      const s = clips[k];
-      if (typeof s !== 'string' || !s.length) { ragged.push(`${k} (empty)`); continue; }
-      let buf;
-      try { buf = Buffer.from(s, 'base64'); } catch { ragged.push(`${k} (not base64)`); continue; }
+    for (const k of Object.keys(entries)) {
+      const e = entries[k];
+      if (!e || typeof e.file !== 'string') { ragged.push(`${k} (no file named)`); continue; }
+      wantedFiles.add(e.file);
+      const clipPath = packClipPath(v.slug, e.file);
+      if (!existsSync(clipPath)) { ragged.push(`${k} -> ${e.file} (missing on disk)`); continue; }
+      const buf = readFileSync(clipPath);
       bytes += buf.length;
+      if (buf.length !== e.bytes) {
+        ragged.push(`${k} -> ${e.file} (index says ${e.bytes}B, file is ${buf.length}B)`);
+        continue;
+      }
       const w = walkMp3(buf);
-      if (w.why) ragged.push(`${k} (${buf.length}B, ${w.why} after ${w.frames} frames)`);
-      else if (w.consumed !== buf.length) ragged.push(`${k} (${buf.length}B, frames tile only ${w.consumed}B — cut short)`);
-      else if (w.frames === 0) ragged.push(`${k} (${buf.length}B, zero audio frames)`);
+      if (w.why) ragged.push(`${e.file} (${buf.length}B, ${w.why} after ${w.frames} frames)`);
+      else if (w.consumed !== buf.length) ragged.push(`${e.file} (${buf.length}B, frames tile only ${w.consumed}B — cut short)`);
+      else if (w.frames === 0) ragged.push(`${e.file} (${buf.length}B, zero audio frames)`);
     }
-    if (ragged.length === 0) ok(`every clip is a complete mp3: ${file} — ${Object.keys(clips).length} clips, ${(bytes / 1048576).toFixed(2)} MB, frames tile to the byte`);
-    else bad(`every clip is a complete mp3: ${file}`,
-      `${ragged.length} of ${Object.keys(clips).length} are not complete playable audio: ${ragged.slice(0, 6).join(', ')}. These play silence or cut off mid-word, and the child cannot report it.`);
+    if (ragged.length === 0) ok(`every clip is a complete mp3, byte size as indexed: ${dir}/ — ${Object.keys(entries).length} clips, ${(bytes / 1048576).toFixed(2)} MB, frames tile to the byte`);
+    else bad(`every clip is a complete mp3, byte size as indexed: ${dir}/`,
+      `${ragged.length} of ${Object.keys(entries).length} are not complete playable audio at the size promised: ${ragged.slice(0, 6).join(', ')}. These play silence, cut off mid-word, or trust a byte count that lied — and the child cannot report it.`);
 
-    // Timing describes lines that are actually in the pack, or it cuts words in half.
-    const times = (pack.times && typeof pack.times === 'object') ? pack.times : {};
-    const orphanTimes = Object.keys(times).filter((k) => !Object.prototype.hasOwnProperty.call(clips, k));
-    if (orphanTimes.length === 0) ok(`${file} timing describes only clips it carries (${Object.keys(times).length} timed)`);
-    else bad(`${file} timing describes only clips it carries`, `${orphanTimes.length} timing entries have no clip: ${orphanTimes.slice(0, 5).join(', ')}`);
+    // Orphans: a clip file on disk that the index no longer names — a stale render left behind
+    // by a corpus edit or a voice/model/speed change, serving nobody and costing bytes anyway.
+    if (existsSync(dir)) {
+      const onDisk = readdirSync(dir).filter((f) => f.endsWith('.mp3'));
+      const orphanFiles = onDisk.filter((f) => !wantedFiles.has(f));
+      if (orphanFiles.length === 0) ok(`${dir}/ has no orphan clip files (${onDisk.length} on disk, all indexed)`);
+      else bad(`${dir}/ has no orphan clip files`, `${orphanFiles.length} on disk are not named by the index: ${orphanFiles.slice(0, 5).join(', ')}. Re-run \`npm run rumi:11:packs\`, which removes these itself.`);
+    }
+
+    // Timing describes lines that are actually in the index, or it cuts words in half.
+    const times = (index.times && typeof index.times === 'object') ? index.times : {};
+    const orphanTimes = Object.keys(times).filter((k) => !Object.prototype.hasOwnProperty.call(entries, k));
+    if (orphanTimes.length === 0) ok(`${indexFile} timing describes only clips it carries (${Object.keys(times).length} timed)`);
+    else bad(`${indexFile} timing describes only clips it carries`, `${orphanTimes.length} timing entries have no clip: ${orphanTimes.slice(0, 5).join(', ')}`);
+
+    // Machine-generated bulk, so each voice's own folder carries the marker too (root
+    // .claude/rules/served-pages.md) — not just voices/ itself, since each slug folder is now
+    // its own root of generated files.
+    if (existsSync(`${dir}/.metadata_never_index`)) ok(`${dir}/ carries .metadata_never_index`);
+    else bad(`${dir}/ carries .metadata_never_index`, 'the folder holds machine-generated bulk and must carry the marker, per .claude/rules/served-pages.md');
   }
 
-  // The packs are machine-generated bulk, so the folder carries the marker that keeps Spotlight
-  // out of it (root .claude/rules/served-pages.md).
   if (!VOICES.some((v) => !v.embedded)) {
     // no packs, nothing to mark
   } else if (existsSync('voices/.metadata_never_index')) {

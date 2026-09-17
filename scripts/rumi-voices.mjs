@@ -37,9 +37,18 @@ export const VOICES = [
 export const DEFAULT_VOICE = VOICES.find((v) => v.embedded);
 export const PACK_VOICES = VOICES.filter((v) => !v.embedded);
 
-/** Where a pack lives, relative to the repo root and to the served origin. One function, so the
- *  generator writes exactly the path the app fetches. */
-export function packPath(slug) { return `voices/${slug}.json`; }
+/** Where a voice's pack lives, relative to the repo root and to the served origin — one function
+ *  per path, so the generator writes exactly what the app fetches.
+ *
+ *  RUMITIDY1, 2026-09-17: this used to be one function, `packPath(slug)`, returning one JSON file
+ *  per voice (`voices/alma.json`). That file held all 280 clips' base64 audio, so a re-recording
+ *  that changed ten lines rewrote the other 270 too — the repo's history grew by the whole voice,
+ *  about 11MB, every time. Now each voice is a folder: a small index naming every clip's file and
+ *  byte size, plus one mp3 per clip. A re-recording that changes ten lines now touches ten files;
+ *  the other 270 are untouched on disk and invisible to git. */
+export function packDir(slug) { return `voices/${slug}`; }
+export function packIndexPath(slug) { return `${packDir(slug)}/index.json`; }
+export function packClipPath(slug, file) { return `${packDir(slug)}/${file}`; }
 
 /** The app's copy. The voice id is deliberately NOT in it: the page never calls ElevenLabs, and
  *  an id in a public file is a credential-shaped string sitting where nothing needs it. */
@@ -54,7 +63,7 @@ function main() {
   if (process.argv.includes('--tag')) { process.stdout.write(`${appTag()}\n`); return; }
   for (const v of VOICES) {
     process.stdout.write(`${v.slug.padEnd(9)} ${v.name.padEnd(9)} ${v.id}  ${v.where}, ${v.note}`
-      + `${v.embedded ? '  (embedded in the page)' : `  -> ${packPath(v.slug)}`}\n`);
+      + `${v.embedded ? '  (embedded in the page)' : `  -> ${packIndexPath(v.slug)}`}\n`);
   }
 }
 
