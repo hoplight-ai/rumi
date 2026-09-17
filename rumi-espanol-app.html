@@ -1367,7 +1367,12 @@ function clipFor(text){
 
 /* RUMI3: `source` lets the English cue map share this decoder and its cache. The cache key
    is namespaced, because "your turn — say it" could in principle exist in both maps and two
-   different recordings under one key is a bug nobody would ever find by looking. */
+   different recordings under one key is a bug nobody would ever find by looking.
+
+   RUMITIDY1, 2026-09-17: a clip's value used to always be a base64 string (the shape the
+   embedded voice still uses). A downloaded voice's clips now arrive as raw ArrayBuffers, one
+   fetch per clip rather than one giant base64 blob for the whole voice — so this decodes
+   either shape rather than assuming atob() always has something to decode. */
 function decodeClip(k, source, ns){
   const map = source || CLIPS;
   const cacheKey = (ns || "es") + "|" + k;
@@ -1375,10 +1380,15 @@ function decodeClip(k, source, ns){
   const p = new Promise((resolve, reject) => {
     let raw;
     try{
-      const bin = atob(map[k]);
-      const bytes = new Uint8Array(bin.length);
-      for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      raw = bytes.buffer;
+      const v = map[k];
+      if(v instanceof ArrayBuffer) raw = v;
+      else if(ArrayBuffer.isView(v)) raw = v.buffer;
+      else {
+        const bin = atob(v);
+        const bytes = new Uint8Array(bin.length);
+        for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        raw = bytes.buffer;
+      }
     }catch(e){ reject(e); return; }
     /* callback form, not the promise form: older Safari only implements this one */
     actx.decodeAudioData(raw, resolve, reject);
@@ -1411,23 +1421,31 @@ function stopClip(){
   }
 }
 
-/* ================= the five voices (RUMIVOICES2, 2026-09-16) =================
+/* ================= the five voices (RUMIVOICES2, 2026-09-16; per-clip files, RUMITIDY1, 2026-09-17) =================
    Whit, 2026-09-16: "why make me choose? let the user have like 5 options in the settings."
 
    THE SHAPE OF THIS IS DECIDED BY ONE NUMBER. scripts/rumi-embed.mjs refuses to write an app
    over 10,485,760 bytes, and one voice's Spanish recordings are about two megabytes of base64
    inside the page. Five would be ten. So exactly ONE voice lives in the file — that is what
    makes the app open and talk the first time, offline, on bad hotel wifi, which is the entire
-   reason this app is a single file — and the other four are ordinary static JSON files fetched
-   once, kept on the device, and restored before the first word on every later load.
+   reason this app is a single file — and the other four are fetched once, kept on the device,
+   and restored before the first word on every later load.
 
-   THE RULE EVERY PATH BELOW OBEYS: a voice that cannot be had is never silence. A failed fetch,
-   a pack that arrives short, storage refusing, a saved name whose file has been removed — all
-   of them land back on the built-in voice, and the settings screen says which name did not
-   arrive. A grown-up who tapped Valeria and is hearing Inés is owed that sentence.
+   RUMITIDY1: a downloadable voice used to be one JSON file holding all 280 clips' base64 audio,
+   so a re-recording that changed ten lines rewrote the other 270 too — the repo's history grew
+   by the whole voice, about 11MB, every time. Now each voice is a small index (every clip's file
+   name and byte size, plus its word-timing spans) plus one mp3 per clip, and picking a voice
+   fetches the index, then every clip it names. The cost, stated plainly because it is real: a
+   first pick goes from one request to roughly 280, since that is how many clips a voice has.
 
-   WHAT IS DELIBERATELY NOT HERE: no progress bar (it is one file, it either lands or it does
-   not), no byte sizes, no flags, no per-row play button. The row IS the play button. */
+   THE RULE EVERY PATH BELOW OBEYS: a voice that cannot be had is never silence. A failed fetch —
+   of the index, or of any one clip it names — a pack that arrives short, storage refusing, a
+   saved name whose files have been removed — all of them land back on the built-in voice, and
+   the settings screen says which name did not arrive. A grown-up who tapped Valeria and is
+   hearing Inés is owed that sentence.
+
+   WHAT IS DELIBERATELY NOT HERE: no progress bar (it either lands or it does not), no byte
+   sizes, no flags, no per-row play button, no per-clip retry. The row IS the play button. */
 const VOICES = Array.isArray(window.RUMI_VOICES) ? window.RUMI_VOICES : [];
 const BUILTIN_VOICE = VOICES.filter(v => v.embedded)[0] || {slug:"ines", name:"Inés", where:"Spain", note:"calm", embedded:true};
 /* Its own storage key, NOT part of rumi.v1. Clearing her stars must never take the voice with
@@ -1442,12 +1460,42 @@ let voiceFailed = "";   /* the NAME of the last voice that could not be had, for
 let voiceReady = Promise.resolve();
 
 /* Relative, not root-absolute, and that is deliberate. The app is served at `/`, at `/rumi` and
-   at `/rumi-espanol-app`, and from all three a relative path resolves to /voices/<slug>.json.
-   Opened straight off the filesystem it resolves to a file that is not there, the fetch fails,
+   at `/rumi-espanol-app`, and from all three a relative path resolves to /voices/<slug>/....
+   Opened straight off the filesystem it resolves to a path that is not there, the fetch fails,
    and the app falls back to the built-in voice — which is the right answer for a page with no
    server, and the wrong one would be a hard-coded leading slash reaching the disk root. */
-function voiceUrl(slug){ return "voices/" + slug + ".json"; }
+function voiceIndexUrl(slug){ return "voices/" + slug + "/index.json"; }
+function voiceClipUrl(slug, file){ return "voices/" + slug + "/" + file; }
 function voiceBySlug(slug){ return VOICES.filter(v => v.slug === slug)[0] || null; }
+
+/* A clip's value is a base64 string (the embedded voice) or a raw ArrayBuffer (anything fetched
+   over the network, per clip). Either way, this is how many real audio bytes it is — the same
+   question packUsable() below asks of every line the built-in voice covers. */
+function clipBytes(v){
+  if(typeof v === "string") return Math.floor(v.length * 3 / 4);
+  if(v instanceof ArrayBuffer) return v.byteLength;
+  if(ArrayBuffer.isView(v)) return v.byteLength;
+  return 0;
+}
+/* 512 raw bytes is the same floor scripts/rumi-eleven.mjs uses to refuse a clip as "too small to
+   be real audio" the moment it is rendered — reused here so a clip judged real at render time is
+   judged real at fetch time by the same number. */
+const MIN_CLIP_BYTES = 512;
+
+/* The index promises every clip's file name and byte size before any clip is fetched, so an
+   incomplete pack can be refused without downloading the 280 files first to find that out. Same
+   completeness rule as before: a pack missing even one line the built-in voice has is refused
+   whole, because the lines it lacks fall through to a device voice, and on the iPad this app
+   exists for there is no such voice — that is silence, not a smaller voice. */
+function indexUsable(idx){
+  if(!idx || typeof idx !== "object" || !idx.clips || typeof idx.clips !== "object") return false;
+  for(const k in BUILTIN_CLIPS){
+    if(!Object.prototype.hasOwnProperty.call(BUILTIN_CLIPS, k)) continue;
+    const e = idx.clips[k];
+    if(!e || typeof e.file !== "string" || !(Number(e.bytes) >= MIN_CLIP_BYTES)) return false;
+  }
+  return true;
+}
 
 function savedVoice(){
   try{ return localStorage.getItem(VOICE_KEY) || ""; }catch(e){ return ""; }
@@ -1462,42 +1510,99 @@ function rememberVoice(slug){
 }
 
 /* Cache Storage, in try/catch at every step. A private window, blocked site data, or a browser
-   that simply has none all return null here, which costs the download again and nothing else. */
-function packFromDevice(slug){
+   that simply has none all return null here, which costs the download again and nothing else.
+
+   RUMITIDY1: the index and every clip file are cached under their own URL, same as before —
+   nothing here changes about HOW Cache Storage is used, only about how many small entries it
+   now holds for one voice instead of one big one. */
+function indexFromDevice(slug){
   try{
     if(!window.caches) return Promise.resolve(null);
     return caches.open(VOICE_CACHE)
-      .then(c => c.match(voiceUrl(slug)))
+      .then(c => c.match(voiceIndexUrl(slug)))
       .then(r => r ? r.json() : null)
       .catch(() => null);
   }catch(e){ return Promise.resolve(null); }
 }
-function packToDevice(slug, res){
+function indexToDevice(slug, res){
   try{
     if(!window.caches) return;
-    caches.open(VOICE_CACHE).then(c => c.put(voiceUrl(slug), res)).catch(() => {});
+    caches.open(VOICE_CACHE).then(c => c.put(voiceIndexUrl(slug), res)).catch(() => {});
   }catch(e){}
 }
-function packFromNetwork(slug){
+function clipToDevice(slug, file, res){
   try{
-    return fetch(voiceUrl(slug)).then(res => {
-      if(!res.ok) throw new Error("http " + res.status);
-      packToDevice(slug, res.clone());
-      return res.json();
+    if(!window.caches) return;
+    caches.open(VOICE_CACHE).then(c => c.put(voiceClipUrl(slug, file), res)).catch(() => {});
+  }catch(e){}
+}
+
+/* Every clip the index names, read back off the device. Any one missing means the whole voice is
+   not usable from the device — a half-restored voice is the same failure a half-downloaded one
+   is, so this falls through to the network exactly like packUsable() failing does below. */
+function clipsFromDevice(slug, idx){
+  try{
+    if(!window.caches) return Promise.resolve(null);
+    return caches.open(VOICE_CACHE).then(c => {
+      const keys = Object.keys(idx.clips);
+      return Promise.all(keys.map(k => {
+        const file = idx.clips[k].file;
+        return c.match(voiceClipUrl(slug, file)).then(r => r ? r.arrayBuffer() : Promise.reject(new Error("not cached: " + file)));
+      })).then(bufs => {
+        const clips = {};
+        keys.forEach((k, i) => { clips[k] = bufs[i]; });
+        return clips;
+      });
+    }).catch(() => null);
+  }catch(e){ return Promise.resolve(null); }
+}
+/* Every clip the index names, over the network. Cached one file at a time as it lands, so a
+   later reload — or a later pick of the SAME voice — reads it straight off the device without
+   asking again for lines that already arrived. */
+function clipsFromNetwork(slug, idx){
+  const keys = Object.keys(idx.clips);
+  return Promise.all(keys.map(k => {
+    const file = idx.clips[k].file;
+    return fetch(voiceClipUrl(slug, file)).then(res => {
+      if(!res.ok) throw new Error("http " + res.status + " " + file);
+      clipToDevice(slug, file, res.clone());
+      return res.arrayBuffer();
     });
-  }catch(e){ return Promise.reject(e); }
+  })).then(bufs => {
+    const clips = {};
+    keys.forEach((k, i) => { clips[k] = bufs[i]; });
+    return clips;
+  });
+}
+function packFromDevice(slug){
+  return indexFromDevice(slug).then(idx => {
+    if(!indexUsable(idx)) return null;
+    return clipsFromDevice(slug, idx).then(clips => clips && ({ voice: idx.voice, name: idx.name, clips, times: idx.times || {} }));
+  }).catch(() => null);
+}
+function packFromNetwork(slug){
+  return fetch(voiceIndexUrl(slug)).then(res => {
+    if(!res.ok) throw new Error("http " + res.status);
+    const cached = res.clone();
+    return res.json().then(idx => {
+      if(!indexUsable(idx)) throw new Error("index for " + slug + " is missing lines the built-in voice has");
+      indexToDevice(slug, cached);
+      return clipsFromNetwork(slug, idx).then(clips => ({ voice: idx.voice, name: idx.name, clips, times: idx.times || {} }));
+    });
+  });
 }
 
 /* A pack is usable only if it covers EVERY line the built-in voice covers. A half-voice is
    worse than one voice: the lines it is missing fall through to the device's own Spanish
    voice, and on the iPad this app exists for there is no such voice, so they are silence.
-   Better to keep the complete voice and say the other one did not arrive. */
+   Better to keep the complete voice and say the other one did not arrive. This is the final
+   gate on the assembled clips (ArrayBuffers from the device or the network); indexUsable()
+   above is the earlier gate on the index's OWN claims, before a single clip is fetched. */
 function packUsable(p){
   if(!p || typeof p !== "object" || !p.clips || typeof p.clips !== "object") return false;
   for(const k in BUILTIN_CLIPS){
     if(!Object.prototype.hasOwnProperty.call(BUILTIN_CLIPS, k)) continue;
-    const v = p.clips[k];
-    if(typeof v !== "string" || v.length < 700) return false;
+    if(clipBytes(p.clips[k]) < MIN_CLIP_BYTES) return false;
   }
   return true;
 }

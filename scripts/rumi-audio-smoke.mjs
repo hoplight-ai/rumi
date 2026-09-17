@@ -23,23 +23,16 @@
  */
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import {
+  existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, statSync, mkdirSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { wordSpans } from './rumi-words.mjs';
 import { collectCues } from './rumi-strings.mjs';
+import { writeIfChanged } from './rumi-packs.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(here, '..', 'rumi-espanol-app.html');
-
-let chromium;
-try {
-  ({ chromium } = await import('playwright'));
-} catch {
-  console.log('SKIP  rumi-audio-smoke — playwright is not installed.');
-  console.log('      A skip is not a pass: nothing was played, so the app may already be silent.');
-  console.log('      To run it:  npm i -D playwright && npx playwright install chromium');
-  process.exit(0);
-}
 
 const pass = [];
 const fails = [];
@@ -51,6 +44,56 @@ const ok = (name, cond, detail) => {
 if (!existsSync(PAGE)) {
   console.log('FAIL  the app file is missing');
   process.exit(1);
+}
+
+/* ---- 0. a re-recording touches only the clip that changed (RUMITIDY1, 2026-09-17) ----
+ * Pure Node, no browser, no playwright, no network, no ElevenLabs credential — this is the one
+ * case in this file that must run even when everything below it is SKIPped, because the claim
+ * it proves is about scripts/rumi-packs.mjs's own write path, not about anything a browser does.
+ *
+ * Observed RED against the one-JSON-per-voice shape RUMITIDY1 replaces: that shape had no
+ * per-clip write at all — every re-recording rewrote all 280 clips' bytes in the single pack
+ * file every time, because there was only one file to write. writeIfChanged() is the function
+ * that makes a re-recording touch only what changed; this proves it directly, on a temp
+ * directory standing in for voices/<slug>/. */
+{
+  const dir = mkdtempSync(join(tmpdir(), 'rumi-writeifchanged-'));
+  const fileA = join(dir, 'a.mp3');
+  const fileB = join(dir, 'b.mp3');
+  const bufA1 = Buffer.from('first recording of clip A');
+  const bufB1 = Buffer.from('the only recording of clip B');
+  const bufA2 = Buffer.from('a RE-recording of clip A, different bytes');
+
+  const wroteA1 = writeIfChanged(fileA, bufA1);
+  const wroteB1 = writeIfChanged(fileB, bufB1);
+  ok('a clip file that does not exist yet is written', wroteA1 === true && wroteB1 === true);
+  ok('the file on disk holds exactly what was written', readFileSync(fileA).equals(bufA1) && readFileSync(fileB).equals(bufB1));
+
+  const mtimeBBefore = statSync(fileB).mtimeMs;
+  const wroteASame = writeIfChanged(fileA, bufA1);
+  ok('writing the same bytes again is reported as no change', wroteASame === false);
+  ok('a re-render that changes nothing leaves the file byte-identical', readFileSync(fileA).equals(bufA1));
+
+  const wroteAChanged = writeIfChanged(fileA, bufA2);
+  ok('a re-recording with different bytes IS written', wroteAChanged === true);
+  ok('the changed clip carries the new bytes', readFileSync(fileA).equals(bufA2));
+  ok('the clip that did not change is untouched, byte-identical, same file',
+     readFileSync(fileB).equals(bufB1) && statSync(fileB).mtimeMs === mtimeBBefore,
+     'a re-recording of one clip must never touch the bytes or the mtime of another — that is the '
+     + 'whole reason the pack moved off one JSON per voice');
+
+  rmSync(dir, { recursive: true, force: true });
+}
+
+let chromium;
+try {
+  ({ chromium } = await import('playwright'));
+} catch {
+  console.log('SKIP  the rest of rumi-audio-smoke — playwright is not installed.');
+  console.log('      A skip is not a pass: nothing was played, so the app may already be silent.');
+  console.log('      To run it:  npm i -D playwright && npx playwright install chromium');
+  console.log(`\n${pass.length} passed, ${fails.length} failed (rest skipped)`);
+  process.exit(fails.length ? 1 : 0);
 }
 
 /* Instrumentation. Counts every buffer that actually starts, and the gain it starts behind —
@@ -490,16 +533,32 @@ ok('unmuting retakes the audio session',
   const BASE = `http://127.0.0.1:${server.address().port}`;
 
   const fx = JSON.parse(readFileSync(resolve(here, 'fixtures', 'eleven-baja-una-linea-grande.json'), 'utf8'));
+  const fxBuf = Buffer.from(fx.mp3_base64, 'base64');
   /* Only the key list and the ONE clip this case measures against cross the bridge. Shipping
    * the whole 7MB map back into node takes seconds and proves nothing extra. */
   const keys = await page.evaluate(() => Object.keys(window.RUMI_CLIPS || {}));
   const graciasB64 = await page.evaluate(() => (window.RUMI_CLIPS || {}).gracias || '');
-  const pack = { voice: 'alma', clips: Object.fromEntries(keys.map((k) => [k, fx.mp3_base64])), times: {} };
-  let packHits = 0;
-  const servePack = (cx) => cx.route('**/voices/alma.json', (r) => {
-    packHits += 1;
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pack) });
-  });
+  /* RUMITIDY1: the mock is now an index (every key pointing at the SAME fixture file, since the
+   * fixture's content is all this case measures — which file answered which key is not) plus a
+   * route that serves that one file under any name the index asks for. Every key still costs its
+   * own request: the point of this shape is exactly that a pack is no longer one file. */
+  const index = {
+    voice: 'alma', name: 'Alma',
+    clips: Object.fromEntries(keys.map((k) => [k, { file: 'fixture.mp3', bytes: fxBuf.length }])),
+    times: {},
+  };
+  let indexHits = 0;
+  let clipHits = 0;
+  const servePack = (cx) => Promise.all([
+    cx.route('**/voices/alma/index.json', (r) => {
+      indexHits += 1;
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(index) });
+    }),
+    cx.route('**/voices/alma/fixture.mp3', (r) => {
+      clipHits += 1;
+      r.fulfill({ status: 200, contentType: 'audio/mpeg', body: fxBuf });
+    }),
+  ]);
 
   const durOf = (p, b64) => p.evaluate(async (s) => {
     if (!s) return null;
@@ -554,8 +613,14 @@ ok('unmuting retakes the audio session',
   await v.evaluate(() => { window.__a.starts = []; });
   const almaRow = await v.$('#voiceList .voiceopt[data-voice="alma"]');
   if (almaRow) await almaRow.click();
-  await v.waitForTimeout(3000);
-  ok('choosing a downloadable voice fetches its pack once', packHits === 1, `requests: ${packHits}`);
+  await v.waitForTimeout(4000);
+  ok('choosing a voice fetches its index exactly once', indexHits === 1, `index requests: ${indexHits}`);
+  /* RUMITIDY1, the stop-and-ask cost stated plainly: a pick now fetches roughly one request per
+   * clip (280 here) rather than the single request the old one-JSON-per-voice shape cost. Every
+   * one of those 280 requests hits the SAME mocked file in this case, so this counts requests,
+   * not distinct files — the distinctness is proven separately on the small corpus below. */
+  ok(`choosing a voice fetches one request per clip, not one for the whole voice (${clipHits} of ${keys.length})`,
+     clipHits === keys.length, `clip requests: ${clipHits}, clips in the built-in voice: ${keys.length}`);
   ok('the chosen voice is marked selected',
      await v.evaluate(() => { const e = document.querySelector('#voiceList .voiceopt.on'); return !!e && e.dataset.voice === 'alma'; }));
   ok('tapping a voice plays a sample of that voice', near(await lastDur(v), fxDur),
@@ -564,8 +629,10 @@ ok('unmuting retakes the audio session',
   ok('after choosing it, Rumi speaks with the chosen voice', near(after, fxDur), `played ${after}s, pack clip ${fxDur}s`);
   ok('the choice is remembered', await v.evaluate(() => { try { return localStorage.getItem('rumi.voice') === 'alma'; } catch (e) { return false; } }));
 
-  /* Reload with the network for voices cut: the voice must come back from the device. */
-  await cx.unroute('**/voices/alma.json');
+  /* Reload with the network for voices cut: the voice must come back from the device — the
+   * index AND all 280 clip files, each restored from its own Cache Storage entry. */
+  await cx.unroute('**/voices/alma/index.json');
+  await cx.unroute('**/voices/alma/fixture.mp3');
   await cx.route('**/voices/**', (r) => r.abort());
   await v.reload();
   await v.waitForTimeout(800);
@@ -607,21 +674,156 @@ ok('unmuting retakes the audio session',
      `played ${fb2}s, built-in ${builtInDur}s`);
   await cf.close();
 
-  /* The real files, on disk and served: every downloadable voice has a pack beside the page,
-   * and it covers the same lines the built-in one does. A pack short of a line is that line
-   * falling back to a device voice, i.e. to silence on the iPad this app exists for. */
+  /* The real files, on disk and served: every downloadable voice has an index beside the page,
+   * and it covers the same lines the built-in one does. An index short of a line is that line
+   * falling back to a device voice, i.e. to silence on the iPad this app exists for. Only a few
+   * clip files are actually fetched here — ci-check.mjs already walked every one of the 280 as
+   * an mp3 on disk; this just proves the SERVED path answers for a sample of them too. */
   const registry = await page.evaluate(() => (window.RUMI_VOICES || []).map((x) => ({ slug: x.slug, embedded: !!x.embedded })));
   ok(`the app carries a registry of five voices (${registry.length})`, registry.length === 5, JSON.stringify(registry));
   ok('exactly one of them is the built-in voice',
      registry.filter((x) => x.embedded).length === 1, JSON.stringify(registry));
   for (const r of registry.filter((x) => !x.embedded)) {
     /* eslint-disable no-await-in-loop */
-    const real = await fetch(`${BASE}/voices/${r.slug}.json`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
-    const n = real ? Object.keys(real.clips || {}).length : 0;
-    ok(`the real pack is served beside the page (voices/${r.slug}.json, ${n} clips)`,
-       n === keys.length, real ? `${n} clips vs ${keys.length} built in` : 'not served');
+    const real = await fetch(`${BASE}/voices/${r.slug}/index.json`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
+    const entries = real ? Object.keys(real.clips || {}) : [];
+    ok(`the real index is served beside the page (voices/${r.slug}/index.json, ${entries.length} clips)`,
+       entries.length === keys.length, real ? `${entries.length} clips vs ${keys.length} built in` : 'not served');
+    if (real) {
+      for (const k of entries.slice(0, 3)) {
+        const file = real.clips[k].file;
+        const res = await fetch(`${BASE}/voices/${r.slug}/${file}`);
+        const body = res.ok ? await res.arrayBuffer() : null;
+        ok(`a real clip file is served (voices/${r.slug}/${file})`,
+           !!body && body.byteLength === real.clips[k].bytes,
+           res.ok ? `served ${body.byteLength}B, index says ${real.clips[k].bytes}B` : `http ${res.status}`);
+      }
+    }
     /* eslint-enable no-await-in-loop */
   }
+
+  /* ---- 4f. a short script needs only its own clips, and one bad clip still falls back
+   * (RUMITIDY1, 2026-09-17) ----
+   * 4e above proves the request SHAPE (index, then one request per clip) on the real 280-line
+   * corpus. This proves the same shape scopes to whatever the built-in voice actually covers: a
+   * 3-line fixture must cost 3 clip requests, not 280 — the brief's own wording is "a short test
+   * script (2-3 lines)" and this is that script, not a stand-in for it. It also covers a failure
+   * mode 4e never exercises: an index that is fine but ONE clip 404s, which must still fall back
+   * to the built-in voice rather than shipping a voice two lines short. */
+  {
+    const miniPairs = await page.evaluate(() => Object.keys(window.RUMI_CLIPS).slice(0, 3).map((k) => [k, window.RUMI_CLIPS[k]]));
+    const miniKeys = miniPairs.map(([k]) => k);
+    const miniClips = Object.fromEntries(miniPairs);
+    const fullHtml = readFileSync(PAGE, 'utf8');
+    const CLIPS_TAG = /(<script id="rumiClips">)([\s\S]*?)(<\/script>)/;
+    const miniHtml = fullHtml.replace(CLIPS_TAG, (_m, o, _b, c) => `${o}window.RUMI_CLIPS = ${JSON.stringify(miniClips)};${c}`);
+    const miniPath = resolve(ROOT, 'build', 'rumi-fixture-mini.html');
+    mkdirSync(resolve(ROOT, 'build'), { recursive: true });
+    writeFileSync(miniPath, miniHtml);
+    const miniUrl = `${BASE}/build/rumi-fixture-mini.html`;
+
+    const miniFiles = miniKeys.map((_k, i) => `mini${i}.mp3`);
+    const miniIndex = {
+      voice: 'alma', name: 'Alma',
+      clips: Object.fromEntries(miniKeys.map((k, i) => [k, { file: miniFiles[i], bytes: fxBuf.length }])),
+      times: {},
+    };
+
+    const bootMini = async (p) => {
+      p.on('pageerror', (e) => console.log(`      pageerror: ${e.message.slice(0, 200)}`));
+      await p.addInitScript(INSTRUMENT);
+      await p.goto(miniUrl);
+      await p.waitForTimeout(400);
+      await p.click('#unlockBtn');
+      await p.waitForTimeout(200);
+      await p.click('#toSettings');
+      await p.waitForTimeout(200);
+    };
+    const pickAlma = async (p) => {
+      const row = await p.$('#voiceList .voiceopt[data-voice="alma"]');
+      if (row) await row.click();
+      await p.waitForTimeout(1500);
+    };
+    const activeSlug = (p) => p.evaluate(() => {
+      const e = document.querySelector('#voiceList .voiceopt.on');
+      return e ? e.dataset.voice : null;
+    });
+
+    // ---- exact request counts on a 3-line corpus ----
+    {
+      let miniIndexHits = 0;
+      const miniClipHits = new Set();
+      const cx = await browser.newContext();
+      await cx.route('**/voices/alma/index.json', (r) => {
+        miniIndexHits += 1;
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(miniIndex) });
+      });
+      await cx.route('**/voices/alma/mini*.mp3', (r) => {
+        miniClipHits.add(r.request().url());
+        r.fulfill({ status: 200, contentType: 'audio/mpeg', body: fxBuf });
+      });
+      const m = await cx.newPage();
+      await bootMini(m);
+      await pickAlma(m);
+      ok('picking a voice on a 3-line corpus fetches its index exactly once', miniIndexHits === 1, `index hits: ${miniIndexHits}`);
+      ok(`picking a voice fetches exactly the clips the corpus needs (${miniClipHits.size} of ${miniKeys.length}), not the whole voice`,
+         miniClipHits.size === miniKeys.length, `distinct clip requests: ${[...miniClipHits].join(', ')}`);
+      ok('the voice picked on the small corpus is marked selected', await activeSlug(m) === 'alma');
+      await cx.close();
+    }
+
+    // ---- an index that is fine, but one of its clips 404s, still falls back whole ----
+    {
+      const cx = await browser.newContext();
+      await cx.route('**/voices/alma/index.json', (r) => {
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(miniIndex) });
+      });
+      let badOne = true;
+      await cx.route('**/voices/alma/mini*.mp3', (r) => {
+        // The first clip requested 404s; the rest succeed. Which one is "first" depends on
+        // fetch scheduling, not on file name, so this just needs exactly one bad response.
+        if (badOne) { badOne = false; r.fulfill({ status: 404 }); return; }
+        r.fulfill({ status: 200, contentType: 'audio/mpeg', body: fxBuf });
+      });
+      const m = await cx.newPage();
+      await bootMini(m);
+      await pickAlma(m);
+      ok('one failed clip in an otherwise-fine pack still falls back to the built-in voice',
+         await activeSlug(m) === 'ines',
+         `active: ${await activeSlug(m)}`);
+      ok('the setting names the voice that did not arrive, on a partial-clip failure',
+         await m.evaluate(() => /Alma/.test((document.getElementById('voiceNote') || {}).textContent || '')));
+      await cx.close();
+    }
+
+    // ---- the per-clip cache survives a reload with no network, on the small corpus ----
+    {
+      const cx = await browser.newContext();
+      await cx.route('**/voices/alma/index.json', (r) => {
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(miniIndex) });
+      });
+      await cx.route('**/voices/alma/mini*.mp3', (r) => {
+        r.fulfill({ status: 200, contentType: 'audio/mpeg', body: fxBuf });
+      });
+      const m = await cx.newPage();
+      await bootMini(m);
+      await pickAlma(m);
+      ok('the small-corpus voice is selected before the network is cut', await activeSlug(m) === 'alma');
+
+      await cx.unroute('**/voices/alma/index.json');
+      await cx.unroute('**/voices/alma/mini*.mp3');
+      await cx.route('**/voices/**', (r) => r.abort());
+      await m.reload();
+      await m.waitForTimeout(800);
+      await m.click('#unlockBtn');
+      await m.waitForTimeout(800);
+      ok('the chosen voice and its per-clip cache survive a reload with no network',
+         await activeSlug(m) === 'alma',
+         `active after reload: ${await activeSlug(m)}`);
+      await cx.close();
+    }
+  }
+
   server.close();
 }
 

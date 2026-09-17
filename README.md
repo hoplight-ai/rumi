@@ -12,14 +12,15 @@ Vercel generated for this project is the one that counts; do not guess it from t
 
 | Path | What it is |
 |---|---|
-| `rumi-espanol-app.html` | the whole app, 5,781,959 bytes |
+| `rumi-espanol-app.html` | the whole app, 5,787,537 bytes |
 | `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
-| `voices/<name>.json` | the four voices that are not inside the page, downloaded on demand |
+| `voices/<slug>/index.json` | one voice's clip list — file name, byte size, and word-timing spans for every line |
+| `voices/<slug>/<clip-id>.mp3` | one recording, downloaded the once a grown-up picks that voice |
 | `scripts/rumi-voices.mjs` | the one list of the five voices. Four things read it; none keeps a copy |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
-| `scripts/ci-check.mjs` | the structural gate. 59 assertions, no network, no dependencies |
+| `scripts/ci-check.mjs` | the structural gate. 67 assertions, no network, no dependencies |
 | `scripts/rumi-unit-test.mjs` | the behavioural suite. 196 assertions over the real shipped corpus |
-| `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. 58 assertions in a real browser — see below |
+| `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. 85 assertions, in a real browser and in plain Node — see below |
 | `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
 | `.github/workflows/ci.yml` | runs both gates on every push |
 
@@ -51,10 +52,10 @@ one of these is a real Spanish speaker, which the previous key could not buy at 
 | Name | From | Where her recordings live |
 |---|---|---|
 | Inés | Spain, calm | inside `rumi-espanol-app.html` |
-| Alma | Spain, warm | `voices/alma.json` |
-| Valeria | Spain, clear | `voices/valeria.json` |
-| Sofía | Spain, natural | `voices/sofia.json` |
-| Daniela | Latin America, bright | `voices/daniela.json` |
+| Alma | Spain, warm | `voices/alma/` |
+| Valeria | Spain, clear | `voices/valeria/` |
+| Sofía | Spain, natural | `voices/sofia/` |
+| Daniela | Latin America, bright | `voices/daniela/` |
 
 **Inés is the default by reading, not by ear, and that is worth saying out loud.** The library
 tags her calm and she reads slowest, which is what a five-year-old decoding a new language needs.
@@ -65,9 +66,19 @@ worth a question.
 app over 10,485,760 bytes and one voice's recordings are about two megabytes of base64 inside the
 page. Five would be ten. So one voice ships in the file — which is what makes the app open and talk
 the first time, offline, on bad wifi, the whole reason this app is a single file — and the other
-four are plain JSON files beside it, fetched the one time a grown-up picks one and then kept on the
-device in Cache Storage. On every later load the chosen voice comes back off the device before the
-first word, never off the network.
+four are fetched the one time a grown-up picks one and then kept on the device in Cache Storage. On
+every later load the chosen voice comes back off the device before the first word, never off the
+network.
+
+**Each downloadable voice is a folder, not one file (RUMITIDY1, 2026-09-17).** `voices/<slug>/`
+holds `index.json` (every clip's file name, byte size and word-timing spans) plus one mp3 per clip.
+Picking a name in Grown-ups fetches the index, then every clip it names — roughly 280 requests the
+first time, instead of the one request the older single-JSON shape cost. That is a real trade, made
+on purpose: the old shape rewrote a voice's whole 2-3MB file in the repo's history every time even
+one line was re-recorded, so a handful of re-recordings this size added up fast. Now a re-recording
+that changes ten lines touches ten files; the other 270 are untouched on disk and invisible to git.
+Confirm the trade is still worth it before re-recording a large batch — this makes small,
+frequent re-recordings cheap and a first pick of any one voice slightly slower, not the reverse.
 
 **A voice that cannot be had is never silence.** A failed download, a pack that arrives short of a
 line, storage refusing, a saved name whose file has gone: all of them land back on Inés and the
@@ -83,6 +94,13 @@ word at a time exactly as the embedded one does.
 runs the ordinary embed gate. It never touches the English cue map: `npm run rumi:11:embed` also
 rebuilds that map from an empty `build/`, which used to replace 171 English recordings with
 nothing. Use `rumi:11:packs`, not `rumi:11:embed`, on a fresh clone.
+
+`node scripts/rumi-packs.mjs --packs-only` (no network, no credential) writes only the four
+downloadable voices' folders and leaves the embedded voice untouched — either from a fresh render
+under `build/rumi-clips-11/` if one is there, or by splitting whatever is already at
+`voices/<slug>/` or, on an older checkout, the pre-RUMITIDY1 flat `voices/<slug>.json`. This is
+how a worktree with no `build/` directory at all converts packs that already shipped without
+calling ElevenLabs again.
 
 **The gate.** `npm run check` compares the list in the page against `scripts/rumi-voices.mjs`, and
 walks every clip in every pack frame by frame the same way it walks the ones in the page. A name in
@@ -398,9 +416,12 @@ callback) and no trim ships without a human listening to a sample first.
 
 ## The gates, and the one assertion that matters
 
-`npm run check` — 59 assertions, runs in about a second, needs nothing installed.
+`npm run check` — 67 assertions, runs in about a second, needs nothing installed.
 `npm run test:rumi` — 196 more, over the real shipped corpus, also with no network. Four fewer
 when the `letters` sibling checkout is not on disk, and it says so out loud.
+`npm run test:audio` — 85 more: 7 run in plain Node with no browser at all (they prove a
+re-recording only rewrites the clip that changed), the rest drive a real headless Chromium and
+skip, loudly, if playwright is not installed.
 
 Most of it is ordinary: the file is present, the inline scripts parse, the stylesheet is non-empty,
 `vercel.json` parses and its rewrites resolve to a real file with an extensionless destination
