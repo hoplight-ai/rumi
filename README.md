@@ -39,6 +39,8 @@ npm run rumi:cues       # render the English cues (idle help + phrase glosses)
 npm run rumi:embed      # base64 both banks back into the app file
 npm run rumi:bakeoff    # rebuild the old edge-tts voice comparison page
 npm run rumi:11:bakeoff # rebuild the ElevenLabs listening page (the one served now)
+npm run rumi:11:seed    # refill build/ from the recordings already on disk, so a re-render
+                        # only pays for lines that are genuinely new (run this first)
 npm run rumi:11:packs   # record all five voices, embed one, write the other four (see below)
 ```
 
@@ -72,7 +74,7 @@ network.
 
 **Each downloadable voice is a folder, not one file (RUMITIDY1, 2026-09-17).** `voices/<slug>/`
 holds `index.json` (every clip's file name, byte size and word-timing spans) plus one mp3 per clip.
-Picking a name in Grown-ups fetches the index, then every clip it names — roughly 280 requests the
+Picking a name in Grown-ups fetches the index, then every clip it names — 288 requests the
 first time, instead of the one request the older single-JSON shape cost. That is a real trade, made
 on purpose: the old shape rewrote a voice's whole 2-3MB file in the repo's history every time even
 one line was re-recorded, so a handful of re-recordings this size added up fast. Now a re-recording
@@ -94,6 +96,30 @@ word at a time exactly as the embedded one does.
 runs the ordinary embed gate. It never touches the English cue map: `npm run rumi:11:embed` also
 rebuilds that map from an empty `build/`, which used to replace 171 English recordings with
 nothing. Use `rumi:11:packs`, not `rumi:11:embed`, on a fresh clone.
+
+**Run `npm run rumi:11:seed` before it, every time, on a machine whose `build/` is empty.** The
+generator decides what to record by looking for a file in `build/rumi-clips-11/`, and `build/` is
+not in the repo — so on a fresh clone it finds nothing, records all 288 lines in all five voices,
+spends about 20,000 credits and, worse, comes back with a **fresh take of every line that was
+already right**. The same sentence, said again, slightly differently, after Whit has already heard
+it. The seed step puts the recordings that shipped back into that folder first: the four packs from
+`voices/<slug>/`, the embedded voice out of the page's own base64. The file names already match —
+the packs are named with the generator's own `clipFile()` — so it is a byte-for-byte copy, not a
+re-derivation. After it, the generator records only the lines that have no recording.
+
+Word timing is preserved rather than recalculated, because an mp3 carries none: the seed step turns
+each shipped line's word spans back into the character-level timing the cache holds, then runs the
+real converter over the result and refuses the whole run unless it reproduces the shipped spans
+exactly. A line whose timing cannot be rebuilt would lose its word-by-word slow speed, which is
+worth stopping for.
+
+**Every age the app offers has a recording (2026-09-23).** Until that date only "Tengo cinco años"
+was ever generated, so a grown-up who set any other age in Grown-ups got that one card in the
+device's robotic voice — and on the iPad this app exists for, which has no Spanish voice, in
+silence. All nine ages the picker offers (two to ten) are now recorded in all five voices. One is
+left out on purpose: the app would say "Tengo un años", and a card in broken Spanish is worse than
+a card she cannot reach. `npm run test:rumi` now asserts that every age the picker offers has a
+real clip in the page and in each of the four packs, not merely a line in the corpus.
 
 `node scripts/rumi-packs.mjs --packs-only` (no network, no credential) writes only the four
 downloadable voices' folders and leaves the embedded voice untouched — either from a fresh render

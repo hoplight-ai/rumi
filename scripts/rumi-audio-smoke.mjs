@@ -822,6 +822,90 @@ ok('unmuting retakes the audio session',
          `active after reload: ${await activeSlug(m)}`);
       await cx.close();
     }
+
+    /* ---- 4g. three defects a live smoke test found on the shipped build (2026-09-23) ----
+     * All three are in the picker's failure and after-swap behaviour, which 4e and 4f only
+     * exercise on the happy path or on a download that fails FAST. Reported by the live-site
+     * agent run against build d7fa86f; each assertion below is written from what a grown-up
+     * standing in front of the iPad sees, not from the function that is wrong. */
+
+    // ---- the whole Grown-ups screen agrees about who is speaking, straight after a swap ----
+    {
+      const cx = await browser.newContext();
+      await cx.route('**/voices/alma/index.json', (r) => {
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(miniIndex) });
+      });
+      await cx.route('**/voices/alma/mini*.mp3', (r) => {
+        r.fulfill({ status: 200, contentType: 'audio/mpeg', body: fxBuf });
+      });
+      const m = await cx.newPage();
+      await bootMini(m);
+      await pickAlma(m);
+      const info = await m.evaluate(() => (document.getElementById('voiceInfo') || {}).textContent || '');
+      ok('after a swap the Grown-ups paragraph names the new voice, not the old one',
+         /Alma/.test(info) && !/speaks as Inés/.test(info), `voiceInfo said: ${info.slice(0, 160)}`);
+      await cx.close();
+    }
+
+    // ---- a download that hangs rather than fails must not lock the picker ----
+    {
+      const cx = await browser.newContext();
+      /* The app's own wait, shortened so the case runs in seconds. A hung fetch is the hotel
+       * and airport failure: the connection is up, the bytes never come, nothing rejects. */
+      await cx.addInitScript(() => { window.RUMI_VOICE_WAIT = 1200; });
+      await cx.route('**/voices/alma/index.json', () => { /* never answers, never fails */ });
+      const m = await cx.newPage();
+      await bootMini(m);
+      const row = await m.$('#voiceList .voiceopt[data-voice="alma"]');
+      if (row) await row.click();
+      await m.waitForTimeout(3000);
+      ok('a hung download gives up and leaves the built-in voice speaking',
+         await activeSlug(m) === 'ines', `active: ${await activeSlug(m)}`);
+      ok('a hung download says which voice did not arrive',
+         await m.evaluate(() => /Alma/.test((document.getElementById('voiceNote') || {}).textContent || '')));
+      ok('no row is still stuck on "getting it" after a hung download',
+         await m.evaluate(() => !document.querySelector('#voiceList .voiceopt.busy')));
+      /* The part that mattered to the parent: every other name is tappable again. */
+      await cx.unroute('**/voices/alma/index.json');
+      await cx.route('**/voices/alma/index.json', (r) => {
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(miniIndex) });
+      });
+      await cx.route('**/voices/alma/mini*.mp3', (r) => {
+        r.fulfill({ status: 200, contentType: 'audio/mpeg', body: fxBuf });
+      });
+      await pickAlma(m);
+      ok('the picker still works after a hung download, with no reload',
+         await activeSlug(m) === 'alma', `active after retry: ${await activeSlug(m)}`);
+      await cx.close();
+    }
+
+    // ---- a retry after one bad clip re-fetches the bad clip, not the whole voice ----
+    {
+      const cx = await browser.newContext();
+      await cx.route('**/voices/alma/index.json', (r) => {
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(miniIndex) });
+      });
+      let badOne = true;
+      let retryHits = null;
+      await cx.route('**/voices/alma/mini*.mp3', (r) => {
+        if (retryHits) retryHits.add(r.request().url());
+        if (badOne) { badOne = false; r.fulfill({ status: 404 }); return; }
+        r.fulfill({ status: 200, contentType: 'audio/mpeg', body: fxBuf });
+      });
+      const m = await cx.newPage();
+      await bootMini(m);
+      await pickAlma(m);
+      ok('the first attempt fell back, as designed', await activeSlug(m) === 'ines', `active: ${await activeSlug(m)}`);
+      retryHits = new Set();
+      await pickAlma(m);
+      ok('the retry succeeds', await activeSlug(m) === 'alma', `active after retry: ${await activeSlug(m)}`);
+      /* On a weak connection one clip failing is the normal case, and the clips that DID arrive
+       * are already on the device. Re-downloading all of them every attempt is what makes a
+       * voice unobtainable on the connection most likely to drop a clip. */
+      ok(`the retry asks only for the clip that failed (${retryHits.size} of ${miniKeys.length})`,
+         retryHits.size === 1, `clip requests on retry: ${[...retryHits].join(', ')}`);
+      await cx.close();
+    }
   }
 
   server.close();

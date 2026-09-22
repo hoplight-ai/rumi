@@ -20,9 +20,17 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// The default settings the app ships with (DEF in rumi-espanol-app.html). {AGE} is spoken as a word
-// via AGEWORD, and 5 is the only age we pre-generate — any other age misses the map and
-// falls back to speechSynthesis, which is why the fallback path is kept intact.
+// The default settings the app ships with (DEF in rumi-espanol-app.html). {AGE} is spoken as a
+// word via AGEWORD in the page.
+//
+// 2026-09-23: until today only 'cinco' was pre-generated, so a grown-up who set any other age in
+// Grown-ups got that one card in the device's robotic voice — or, on the iPad this app exists
+// for, in silence, because it has no Spanish voice at all. The ages the app can be set to are
+// 2 to 10 (the kidAge dropdown builds exactly that range), so those are the ages it records.
+// One is not on the list: the app would say "Tengo un años", and a card in broken Spanish is
+// worse than a card she cannot reach.
+export const AGE_WORDS = ['dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'];
+// The default age, still the one the app ships with.
 export const AGE_WORD = 'cinco';
 
 // Strings the app speaks that live in code, not in MODULES. Found by grepping every
@@ -92,16 +100,23 @@ export function readModules(html) {
  * Expand one template into every form the app can actually speak.
  * {A} is the gender ending — both `a` and `o`, because the settings screen offers both.
  * {E} is always `e` (triste is invariable; the app's own fill() says so).
- * {AGE} is the age WORD, and only 5 is pre-generated.
+ * {AGE} is the age WORD, and every age the settings screen offers (2 to 10) is generated.
  * {NAME} is removed: the app deliberately never voices the child's name, and after the
  * RUMI1 privacy fix the default name is empty anyway.
  */
 export function expand(template) {
   if (!template) return [];
   const withoutName = String(template).replace(/\{NAME\}/g, '');
-  const base = withoutName.replace(/\{E\}/g, 'e').replace(/\{AGE\}/g, AGE_WORD);
-  if (!base.includes('{A}')) return [base];
-  return [base.replace(/\{A\}/g, 'a'), base.replace(/\{A\}/g, 'o')];
+  const withE = withoutName.replace(/\{E\}/g, 'e');
+  const byAge = withE.includes('{AGE}')
+    ? AGE_WORDS.map((w) => withE.replace(/\{AGE\}/g, w))
+    : [withE];
+  const out = [];
+  byAge.forEach((base) => {
+    if (!base.includes('{A}')) { out.push(base); return; }
+    out.push(base.replace(/\{A\}/g, 'a'), base.replace(/\{A\}/g, 'o'));
+  });
+  return out;
 }
 
 /** Pull the stroke-geometry block out of the HTML and evaluate it.

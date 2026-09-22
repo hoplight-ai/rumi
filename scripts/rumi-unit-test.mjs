@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { collect, normalizeKey, expand, readModules, FIXED_STRINGS, needsGloss, readGlyphs, collectCues } from './rumi-strings.mjs';
 import { HELP_LINES, collectEnglish } from './rumi-cues.mjs';
 import { wordSpans, wordSpansFromMarks, spanMap } from './rumi-words.mjs';
+import { PACK_VOICES, packIndexPath, packClipPath } from './rumi-voices.mjs';
+import { alignmentFromSpans } from './rumi-seed-cache.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(ROOT, 'rumi-espanol-app.html'), 'utf8');
@@ -69,7 +71,61 @@ ok('no spoken string carries a name placeholder', collect(html).every((it) => !i
 /* ---- 3. placeholder expansion ---- */
 ok('{A} expands to both genders', expand('Estoy content{A}').join('|') === 'Estoy contenta|Estoy contento');
 ok('{E} expands to e', expand('Estoy trist{E}')[0] === 'Estoy triste');
-ok('{AGE} expands to the word', expand('Tengo {AGE} años')[0] === 'Tengo cinco años');
+ok('{AGE} expands to the word', expand('Tengo {AGE} años').includes('Tengo cinco años'));
+/* 2026-09-23, found by a live smoke test: only age five was ever recorded, so a grown-up who
+ * set any other age got the robotic device voice on that one card — and silence on the iPad
+ * this app exists for, which has no Spanish voice at all. Every age the app can say has to be
+ * a line the generator records. AGEWORD in the page is the list of ages the app can say. */
+{
+  const m = html.match(/const AGEWORD = \{([^}]*)\}/);
+  const range = html.match(/for\(let i = (\d+); i <= (\d+); i\+\+\)/);
+  ok('the page defines the ages it can say', Boolean(m) && Boolean(range));
+  const lookup = m ? Object.fromEntries(m[1].split(',').map((p) => {
+    const [n, w] = p.split(':');
+    return [n.trim(), w.replace(/["']/g, '').trim()];
+  })) : {};
+  /* The ages the GROWN-UPS SCREEN offers, not every key in the lookup: the lookup also holds 1,
+   * which the picker never offers and which would be spoken as "Tengo un años". */
+  const ageWords = range
+    ? Array.from({ length: Number(range[2]) - Number(range[1]) + 1 }, (_v, i) => lookup[String(Number(range[1]) + i)])
+    : [];
+  const spoken = expand('Tengo {AGE} años');
+  ok(`{AGE} expands to every age the app offers (${spoken.length} of ${ageWords.length})`,
+     ageWords.length > 1 && ageWords.every((w) => spoken.includes(`Tengo ${w} años`)),
+     `expanded: ${spoken.join(' | ')}`);
+  const corpus = new Set(collect(html).map((it) => normalizeKey(it.text)));
+  const missing = ageWords.filter((w) => !corpus.has(normalizeKey(`Tengo ${w} años`)));
+  ok(`every age the app offers is in the recorded corpus (${ageWords.length - missing.length} of ${ageWords.length})`,
+     missing.length === 0, `no line for: ${missing.join(', ')}`);
+
+  /* The assertion above proves the COLLECTOR emits the line. That is the weaker half: a line in
+   * the corpus with no recording behind it still falls through to the device voice, which is the
+   * exact failure this whole change exists to end. So the page's own bank and each downloadable
+   * voice's index are read here, and every age has to have a real clip in all five.
+   * Added 2026-11 by RUMIAGE2; observed failing on all five voices before the render. */
+  const clipTag = html.match(/<script id="rumiClips">window\.RUMI_CLIPS = ([\s\S]*?);<\/script>/);
+  ok('the embedded bank parses, so its coverage can be checked', Boolean(clipTag));
+  if (clipTag) {
+    const shipped = JSON.parse(clipTag[1]);
+    const noClip = ageWords.filter((w) => typeof shipped[normalizeKey(`Tengo ${w} años`)] !== 'string');
+    ok(`every age the app offers has a clip in the page (${ageWords.length - noClip.length} of ${ageWords.length})`,
+       ageWords.length > 1 && noClip.length === 0, `silent ages: ${noClip.join(', ')}`);
+    /* And in every voice a grown-up can switch to. A pack short of an age is that age going quiet
+     * the moment the voice changes, which is the same defect wearing a different name. */
+    for (const v of PACK_VOICES) {
+      const indexFile = path.join(ROOT, packIndexPath(v.slug));
+      if (!fs.existsSync(indexFile)) { ok(`${v.name}'s pack index exists`, false); continue; }
+      const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+      const gaps = ageWords.filter((w) => {
+        const rec = index.clips && index.clips[normalizeKey(`Tengo ${w} años`)];
+        return !rec || typeof rec.file !== 'string'
+          || !fs.existsSync(path.join(ROOT, packClipPath(v.slug, rec.file)));
+      });
+      ok(`every age the app offers has a clip in ${v.name}'s pack (${ageWords.length - gaps.length} of ${ageWords.length})`,
+         ageWords.length > 1 && gaps.length === 0, `silent ages: ${gaps.join(', ')}`);
+    }
+  }
+}
 ok('{NAME} is dropped, never voiced', expand('Me llamo {NAME}')[0].trim() === 'Me llamo');
 
 /* ---- 4. the key functions agree. THIS is the drift gate. ---- */
@@ -782,6 +838,40 @@ ok('every CUE_KEY has a generated line', (() => {
     { a: marks, b: fx.alignment });
   ok('free-voice timing: one timing map holds both recorders',
     Object.keys(map).length === 2 && Array.isArray(map.a) && Array.isArray(map.b));
+}
+
+/* ---- 13c. seeding the render cache from what already shipped (2026-09-23) ----
+ * build/ is gitignored, so an empty one makes the generator re-record all 288 lines in all five
+ * voices — 20,000 credits, and a fresh take of every line Whit has already heard. The seed step
+ * puts the shipped recordings back. Word timing is the hard half: an mp3 carries none, and what
+ * ships is the CONVERTED word spans, so the seeder rebuilds the character-level timing from them.
+ * If that inverse ever stops being exact, every seeded line's slow speed reads the wrong slice of
+ * its own recording, so it is asserted here as well as gated at run time. */
+{
+  const text = 'Tengo cinco años';
+  const spans = [1.94, 0.09, 0.53, 0.58, 1.08, 1.15, 1.61];
+  const back = wordSpans(text, alignmentFromSpans(text, spans));
+  ok('seed: word spans survive the round trip through a rebuilt alignment',
+    Array.isArray(back) && back.length === spans.length && back.every((n, i) => n === spans[i]));
+  ok('seed: the clip end is kept, not collapsed onto the last word',
+    Array.isArray(back) && back[0] === 1.94 && back[back.length - 1] === 1.61);
+  ok('seed: spans that do not describe the text are refused rather than guessed',
+    alignmentFromSpans('Tengo cinco años muy largos', spans) === null
+    && alignmentFromSpans(text, [1.94, 0.09]) === null);
+  // And on the real thing: every line the page ships must round-trip, or seeding it would hand
+  // the app a clip whose spans no longer match it.
+  const shippedTimes = html.match(/<script id="rumiTimes">window\.RUMI_TIMES = ([\s\S]*?);<\/script>/);
+  if (shippedTimes) {
+    const t = JSON.parse(shippedTimes[1]);
+    const corpus = new Map(collect(html).map((it) => [it.key, it.text]));
+    const broke = Object.keys(t).filter((k) => {
+      if (!corpus.has(k)) return false;
+      const r = wordSpans(corpus.get(k), alignmentFromSpans(corpus.get(k), t[k]));
+      return !(Array.isArray(r) && r.length === t[k].length && r.every((n, i) => n === t[k][i]));
+    });
+    ok(`seed: every timed line the page ships round-trips exactly (${Object.keys(t).length})`,
+      broke.length === 0, `broke: ${broke.slice(0, 3).join(', ')}`);
+  }
 }
 
 console.log(`${pass} passed, ${fails.length} failed`);

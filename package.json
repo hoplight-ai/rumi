@@ -25,6 +25,8 @@
     "rumi:11:bakeoff:dry": "node scripts/rumi-eleven-bakeoff.mjs --dry",
     "rumi:11:shared": "node --env-file=.env.local scripts/rumi-eleven.mjs --shared es",
     "rumi:11:embed": "node --env-file=.env.local scripts/rumi-eleven.mjs --map && node --env-file=.env.local scripts/rumi-eleven.mjs --cues --map && node scripts/rumi-embed.mjs",
+    "rumi:11:seed": "node scripts/rumi-seed-cache.mjs",
+    "rumi:11:seed:dry": "node scripts/rumi-seed-cache.mjs --dry",
     "rumi:11:packs": "node --env-file=.env.local scripts/rumi-packs.mjs",
     "rumi:11:packs:maps": "node scripts/rumi-packs.mjs --maps-only",
     "rumi:11:packs:only": "node scripts/rumi-packs.mjs --packs-only",
