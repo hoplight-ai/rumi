@@ -35,7 +35,8 @@ npm run rumi:strings    # list the phrases the app asks for
 npm run rumi:extract    # rebuild build/ from the shipped page (reuse, never resynthesize)
 npm run rumi:audio      # render the Spanish clips, and the word timing beside them
                         # (needs python3 with edge-tts importable; see scripts/rumi-edge-words.py)
-npm run rumi:cues       # render the English cues (idle help + phrase glosses)
+npm run rumi:cues       # render the English cues with the OLD Microsoft voice (superseded 2026-09-23;
+                        # the shipped English is ElevenLabs Alice via RUMI_EN_VOICE + rumi:11:cues)
 npm run rumi:embed      # base64 both banks back into the app file
 npm run rumi:bakeoff    # rebuild the old edge-tts voice comparison page
 npm run rumi:11:bakeoff # rebuild the ElevenLabs listening page (the one served now)
@@ -343,8 +344,12 @@ Which cards count as phrases is decided by exactly one rule, `needsGloss()` in
 `scripts/rumi-strings.mjs`, with a textual twin in the app that the unit test holds in agreement;
 per-card `gloss: true/false` overrides exist for where the token-count proxy is wrong (the
 article+noun vocabulary in `mesa` and `ropa` stays Spanish-only, `Espérame` glosses despite being
-one word). English is en-GB-SoniaNeural, Spanish is es-ES-XimenaNeural — two languages, two
-audibly different people.
+one word). Two languages, two audibly different people. Since 2026-09-23 the English is Alice,
+ElevenLabs' clear British teacher voice (`RUMI_EN_VOICE=Xb7hH8MSUJpSbSDYk0k2`), rendered by
+`RUMI_EN_VOICE=... npm run rumi:11:cues` and then `-- --map`; before that it was Microsoft's
+en-GB-SoniaNeural, which a live smoke test that day heard as a robot beside the real Spanish
+women. The Spanish is one of the five voices above. 2,216 credits for the 171 lines, and the
+lower bitrate took the app from 5.89 MB to 5.33 MB.
 
 ## Tracing, and why the cues are Spanish
 
