@@ -3,7 +3,8 @@
 A Spanish app for a five-year-old who cannot read yet.
 
 One HTML file. Everything — the markup, the styles, the app logic, and 304 recorded audio clips —
-is inside it. No build step, no dependencies, no network calls, no accounts, no analytics.
+is inside it. No build step, no dependencies, no accounts. One network call the app never waits on:
+anonymous tap logging and a feedback box for grown-ups, below.
 
 **Live:** recorded in the RUMI2 report on the bridge and in `_handoffs/_lanes/POLICY.md`. The URL
 Vercel generated for this project is the one that counts; do not guess it from the project name.
@@ -18,10 +19,11 @@ Vercel generated for this project is the one that counts; do not guess it from t
 | `voices/<slug>/<clip-id>.mp3` | one recording, downloaded the once a grown-up picks that voice |
 | `scripts/rumi-voices.mjs` | the one list of the five voices. Four things read it; none keeps a copy |
 | `vercel.json` | `cleanUrls`, and the two rewrites that serve the app at `/` and at `/rumi` |
-| `scripts/ci-check.mjs` | the structural gate. 67 assertions, no network, no dependencies |
+| `scripts/ci-check.mjs` | the structural gate. 80 assertions, no network, no dependencies |
 | `scripts/rumi-unit-test.mjs` | the behavioural suite. 196 assertions over the real shipped corpus |
 | `scripts/rumi-audio-smoke.mjs` | the gate that actually listens. 85 assertions, in a real browser and in plain Node — see below |
 | `scripts/rumi-strings.mjs` etc. | the content toolchain — see below |
+| `scripts/proof-signal.mjs` | `npm run proof:signal`: taps through in a headless browser against the live Hoplight signal kit and sends one feedback note; every post must answer 202. `-- --live` checks the deployed site, `-- --url <address>` any other copy (which must send nothing). Needs `npm i --no-save playwright` |
 | `.github/workflows/ci.yml` | runs both gates on every push |
 
 ## Regenerating the content
@@ -430,6 +432,28 @@ shows him a filename and nothing else, so the real file keeps a name he can actu
 The gate asserts that no `index.html` appears, because adding one is the obvious fix for a 404 and
 it would quietly undo this.
 
+## Feedback and anonymous usage (KIDSIGNAL1, 2026-11-07)
+
+Whit, 2026-11-07: "3 i want usage", answering whether Rumi should log anonymous usage before it goes
+public. The page loads Hoplight's signal kit (`https://hoplight.ai/kit/signal.js`) last and deferred,
+so the app has already run and never waits on it; offline it never arrives and nothing changes.
+
+The child is the user, so only taps and screens are logged, under hoplight.ai's tool slug `rumi`
+(its store files it as `rumi-espanol`): `open` (voice, speed, muted, returning), `screen` (home,
+module, grown-ups), `deck-open` (deck, cards), `play` and `replay` (deck, card, kind), `gloss`,
+`answer` (deck, card, kind, right), `card-done` (deck, card, kind, first), `deck-done` (deck, cards,
+stars), `speed`, `voice` and `mute`. A card is sent as its deck id, its place and its type, never
+its words, because `fill()` can put the name into a phrase. Never anything typed, never the name, no
+cookie, no stored id. `sig()` logs only on https://rumi-rouge.vercel.app, drops any prop name it does
+not list, and drops any string that is not one of the app's own fixed words. `npm run check` reads
+every `sig()` call and fails on a value it does not know, or if the kit loads before the app script.
+
+The feedback box is in Grown-ups (the gear), above the phrasebook, with an optional email and the
+line "Anonymous usage is logged to make this better. No names, no addresses." The home screen and
+the cards are unchanged. The link preview is now Hoplight's card, `https://hoplight.ai/api/og/tool/rumi`,
+and the og and twitter titles read "Rumi Español by Hoplight"; `<title>` stays "Rumi Español" for
+the uptime monitor.
+
 ## Why the app is one file
 
 Rumi is used on a phone, in a car, in a house with bad wifi, by a child who will not wait for a
@@ -447,7 +471,7 @@ callback) and no trim ships without a human listening to a sample first.
 
 ## The gates, and the one assertion that matters
 
-`npm run check` — 67 assertions, runs in about a second, needs nothing installed.
+`npm run check` — 80 assertions, runs in about a second, needs nothing installed.
 `npm run test:rumi` — 196 more, over the real shipped corpus, also with no network. Four fewer
 when the `letters` sibling checkout is not on disk, and it says so out loud.
 `npm run test:audio` — 85 more: 7 run in plain Node with no browser at all (they prove a

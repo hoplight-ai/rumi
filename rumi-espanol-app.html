@@ -17,26 +17,30 @@
      who recognises the cat and cannot read the label under it.
      PNGs are generated from scripts/rumi-*-2026-08-24.html by scripts/build-preview-assets.mjs.
      The cat in those sources is copied path-for-path from the #rumiCat sprite below; re-copy and
-     re-render if it changes. -->
+     re-render if it changes.
+     2026-11-07 (KIDSIGNAL1): the link preview is now Hoplight's own card for this tool,
+     https://hoplight.ai/api/og/tool/rumi (1200x630 PNG, drawn by hoplight.ai), and the og and
+     twitter titles read "Rumi Español by Hoplight". The <title> stays "Rumi Español" because the
+     uptime monitor asserts that string. rumi-og-card.png stays in the repo, unused by the page. -->
 <meta name="description" content="A Spanish app for a five-year-old who cannot read yet. Tap, listen, repeat — no reading required.">
 <meta name="application-name" content="Rumi">
 <meta name="theme-color" content="#1b1233">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Rumi">
-<meta property="og:title" content="Rumi Español">
+<meta property="og:title" content="Rumi Español by Hoplight">
 <meta property="og:description" content="A Spanish app for a five-year-old who cannot read yet. Tap, listen, repeat — no reading required.">
 <meta property="og:url" content="https://rumi-rouge.vercel.app/">
-<meta property="og:image" content="https://rumi-rouge.vercel.app/rumi-og-card.png">
+<meta property="og:image" content="https://hoplight.ai/api/og/tool/rumi">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Rumi Español — a Spanish app for a five-year-old who cannot read yet">
+<meta property="og:image:alt" content="Rumi Español by Hoplight, with Rumi the cat">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Rumi Español">
+<meta name="twitter:title" content="Rumi Español by Hoplight">
 <meta name="twitter:description" content="A Spanish app for a five-year-old who cannot read yet. Tap, listen, repeat — no reading required.">
-<meta name="twitter:image" content="https://rumi-rouge.vercel.app/rumi-og-card.png">
+<meta name="twitter:image" content="https://hoplight.ai/api/og/tool/rumi">
 
 <!-- The tab icon is inlined as a data URI so the page keeps its "zero subresources" property
      exactly. scripts/ci-check.mjs permits data: for this reason. -->
@@ -325,6 +329,18 @@
   /* It only exists when a voice did not arrive; empty, it must not hold a gap under the list. */
   .voicenote{margin:12px 0 0;font-size:13px;font-weight:600;opacity:.6;line-height:1.5}
   .voicenote:empty{display:none}
+  /* ---------- the feedback box in Grown-ups (KIDSIGNAL1, 2026-11-07) ----------
+     The same block, label, input and button as "Who is learning?" above it; only the textarea
+     is new. Text selection is switched back on inside it, because the page turns it off. */
+  .tell textarea{
+    width:100%;min-height:96px;padding:14px;border-radius:16px;border:2px solid #1b123322;
+    font-size:17px;font-weight:700;line-height:1.4;font-family:inherit;background:#fdfbff;color:var(--ink);
+    resize:vertical
+  }
+  .tell textarea,.tell input{-webkit-user-select:text;user-select:text}
+  .tell .btn:disabled{opacity:.45}
+  .tell .tell-said{font-size:14px;font-weight:700;opacity:.7}
+  .block .tell-note{margin:14px 0 0}
 
   table.pb{width:100%;border-collapse:collapse;font-size:14px}
   table.pb th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1px;opacity:.45;padding:6px 4px}
@@ -586,6 +602,27 @@
       <h3>Progress</h3>
       <p id="progLine">—</p>
       <button class="btn ghost" id="resetProg">Clear all stars</button>
+    </div>
+
+    <!-- KIDSIGNAL1, 2026-11-07: the feedback box. It lives here, behind the Grown-ups gear, so the
+         child never lands on it; the home screen and the cards are unchanged. Whit, 2026-11-07:
+         "before i share them i want a way for users to give me feedback". It sends through the
+         Hoplight signal kit; the email is optional. Above the phrasebook, not under it, because
+         the phrasebook is the longest thing on this screen. -->
+    <div class="block tell" id="tell" data-hoplight-feedback>
+      <h3>Tell me what breaks</h3>
+      <p>What broke, what confused her, what you would change. It goes to the person who made Rumi.</p>
+      <form id="tellForm" novalidate>
+        <label for="tellMsg">Your note</label>
+        <textarea id="tellMsg" rows="3" maxlength="2000" autocomplete="off" autocapitalize="sentences" spellcheck="true"></textarea>
+        <label for="tellMail">Email if you want a reply</label>
+        <input id="tellMail" type="email" maxlength="200" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false">
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn" id="tellSend" type="submit">Send</button>
+          <span class="tell-said" id="tellSaid" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+      <p class="tell-note">Anonymous usage is logged to make this better. No names, no addresses.</p>
     </div>
 
     <div class="block">
@@ -1190,6 +1227,67 @@ const MODULES = [
    truth, rather than a stale hash that would lie about which build is on the phone. */
 const BUILD = "__RUMI_BUILD__";
 
+/* ================= anonymous usage (KIDSIGNAL1, 2026-11-07) =================
+   Whit, 2026-11-07: "3 i want usage", answering whether Rumi should log anonymous usage. The
+   Hoplight signal kit (hoplight.ai/kit/signal.js) loads AFTER this script with defer, so the app
+   never waits on it, and offline it simply never arrives. It keeps no cookie and no id.
+
+   The child is the user, so this logs taps and screens only: which screen, which deck, which
+   card was played or replayed, whether an answer was right, what was finished. Never anything
+   typed, never the name, never a device id, nothing stored. Three locks make that structural:
+   1. sig() logs only on the live address, so a preview, a file:// copy or a test run sends nothing.
+   2. Only the actions and prop names listed here pass, and a string value passes only when it
+      is a word from the app's own fixed lists (a deck id, a card type, a speed, a voice, a
+      screen). A name, or anything else free, is dropped here before it reaches the kit.
+   3. scripts/ci-check.mjs reads every sig() call and fails on any value it does not know, and
+      fails if the kit loads before this script. */
+const SIG_TOOL = "rumi";   /* hoplight.ai's slug; its store files it as rumi-espanol */
+const SIG_ORIGIN = "https://rumi-rouge.vercel.app";
+const SIG_ACTIONS = new Set(["open", "screen", "deck-open", "play", "replay", "gloss", "answer",
+  "card-done", "deck-done", "speed", "voice", "mute"]);
+const SIG_KEYS = new Set(["screen", "deck", "card", "kind", "right", "stars", "cards", "speed",
+  "voice", "muted", "returning", "first"]);
+const SIG_SCREEN = {scHome:"home", scMod:"module", scSet:"grown-ups"};
+let sigWordSet = null, sigQueue = [], sigOpened = false, sigPlayed = null, sigDone = null;
+/* The card on screen as three fixed things: its deck's id, its place in the deck, its type.
+   Never its words: a phrase can carry the name (fill() puts it in), so the text is not sent. */
+function sigCard(){
+  const c = cur && cur.cards[idx];
+  return c ? {deck: cur.id, card: idx, kind: c.t} : {};
+}
+function sigWords(){
+  if(!sigWordSet){
+    sigWordSet = new Set(["home", "module", "grown-ups", "rabbit", "walk", "turtle",
+      "say", "hear", "find", "do", "letter", "num", "answer"]);
+    MODULES.forEach(m => sigWordSet.add(m.id));
+    (Array.isArray(window.RUMI_VOICES) ? window.RUMI_VOICES : []).forEach(v => sigWordSet.add(v.slug));
+  }
+  return sigWordSet;
+}
+function sig(action, props){
+  try{
+    if(location.origin !== SIG_ORIGIN) return;
+    if(!SIG_ACTIONS.has(action)) return;
+    const clean = {};
+    for(const k in (props || {})){
+      if(!SIG_KEYS.has(k)) continue;
+      const v = props[k];
+      if(typeof v === "boolean" || (typeof v === "number" && isFinite(v))) clean[k] = v;
+      else if(typeof v === "string" && sigWords().has(v)) clean[k] = v;
+    }
+    const kit = window.hoplightSignal;
+    if(!kit){ if(sigQueue.length < 20) sigQueue.push([action, clean]); return; }
+    flushSig();
+    kit.track(SIG_TOOL, action, clean);
+  }catch(e){ /* logging never breaks the app */ }
+}
+function flushSig(){
+  const kit = window.hoplightSignal;
+  if(!kit) return;
+  for(const [a, p] of sigQueue.splice(0)){ try{ kit.track(SIG_TOOL, a, p); }catch(e){} }
+}
+window.addEventListener("load", flushSig);
+
 /* ================= state ================= */
 const DEF = {name:"", age:5, gender:"f", speed:"walk", muted:false, stars:{}};
 let S = load();
@@ -1768,7 +1866,7 @@ function renderVoiceList(){
     mark.textContent = (v.slug === voiceBusy) ? "getting it" : (v.slug === activeVoice ? "on" : "");
     b.appendChild(col);
     b.appendChild(mark);
-    b.onclick = () => { if(voiceBusy) return; useVoice(v.slug, {sample:true}); };
+    b.onclick = () => { if(voiceBusy) return; sig("voice", {voice: v.slug}); useVoice(v.slug, {sample:true}); };
     wrap.appendChild(b);
   });
   const note = document.getElementById("voiceNote");
@@ -2112,6 +2210,7 @@ function openModule(id){
   const firstNode = nameEl.firstChild;
   if(firstNode && firstNode.nodeType === 3){ firstNode.nodeValue = cur.es; }
   else { nameEl.insertBefore(document.createTextNode(cur.es), nameEl.firstChild); }
+  sig("deck-open", {deck: cur.id, cards: cur.cards.length});
   show("scMod");
   renderCard(true);
 }
@@ -2129,7 +2228,9 @@ function renderDots(){
 
 function markDone(){
   if(!S.stars[cur.id]) S.stars[cur.id] = [];
-  if(S.stars[cur.id].indexOf(idx) < 0){ S.stars[cur.id].push(idx); save(); }
+  const first = S.stars[cur.id].indexOf(idx) < 0;
+  if(first){ S.stars[cur.id].push(idx); save(); }
+  if(sigDone !== cur.id + ":" + idx){ sigDone = cur.id + ":" + idx; sig("card-done", {...sigCard(), first: first}); }
 }
 
 function renderCard(autoPlay){
@@ -2142,6 +2243,7 @@ function renderCard(autoPlay){
   if(tr){ clearTimeout(tr.demoTimer); tr = null; }
   answered = false; revealed = false;
   picked = null; pickedBtn = null;
+  sigPlayed = null; sigDone = null;
   renderDots();
   const c = cur.cards[idx];
   const stage = document.getElementById("stage");
@@ -2358,7 +2460,7 @@ function addGlossBtn(row, c){
   b.className = "glossbtn";
   b.textContent = "🇬🇧";
   b.setAttribute("aria-label", "hear what it means in English");
-  b.onclick = () => { stopSpeech(); playCueDone(k); };
+  b.onclick = () => { stopSpeech(); playCueDone(k); sig("gloss", sigCard()); };
   row.appendChild(b);
 }
 
@@ -2369,6 +2471,8 @@ function spokenOf(c){
 
 function playCard(){
   const c = cur.cards[idx];
+  if(sigPlayed === cur.id + ":" + idx) sig("replay", sigCard());
+  else { sigPlayed = cur.id + ":" + idx; sig("play", sigCard()); }
   if(c.t === "answer" && revealed){
     speak(fill(c.replySpoken || c.reply.es, true));
     return;
@@ -2627,6 +2731,7 @@ function buildFind(stage, c){
     b.textContent = o.emo;
     b.onclick = () => {
       if(answered) return;
+      sig("answer", {...sigCard(), right: !!o.correct});
       if(o.correct){
         answered = true;
         b.classList.add("right");
@@ -3134,7 +3239,7 @@ function enterTrace(c, defer){
   /* The trace IS the card now, so this is the card's only 🔊 and it has to carry both
      halves: the letter and its word, then the stroke instruction. It used to replay the
      stroke cue alone, which was right when the letter card still existed behind it. */
-  btn.onclick = () => { stopSpeech(); speak(spokenOf(c), trBegin); };
+  btn.onclick = () => { stopSpeech(); speak(spokenOf(c), trBegin); sig("replay", sigCard()); };
   row.appendChild(btn);
   stage.appendChild(row);
 
@@ -3204,6 +3309,7 @@ function buildLetter(stage, c){
 function renderEnd(){
   clearTimeout(beatTimer);
   stopSpeech();
+  sig("deck-done", {deck: cur.id, cards: cur.cards.length, stars: (S.stars[cur.id] || []).length});
   idx = -1;
   document.getElementById("dots").innerHTML = "";
   const stage = document.getElementById("stage");
@@ -3242,6 +3348,7 @@ function submitChoice(){
   const o = picked, b = pickedBtn, c = cur.cards[idx];
   picked = null; pickedBtn = null;
   b.classList.remove("sel");
+  sig("answer", {...sigCard(), right: !!o.correct});
 
   if(!o.correct){
     b.classList.add("wrong");
@@ -3292,6 +3399,7 @@ document.getElementById("setBack").onclick = () => { renderHome(); show("scHome"
 function show(id){
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
   document.getElementById(id).classList.add("on");
+  sig("screen", {screen: SIG_SCREEN[id]});
 }
 
 /* speed buttons */
@@ -3301,6 +3409,7 @@ document.querySelectorAll(".sp").forEach(b => {
     b.classList.add("on");
     S.speed = b.dataset.speed;
     save();
+    sig("speed", {speed: S.speed});
     syncSpeedButtons();
     playCard();
   };
@@ -3412,6 +3521,26 @@ document.getElementById("diagCopy").onclick = () => {
   }
 };
 
+/* KIDSIGNAL1, 2026-11-07: the feedback box in Grown-ups. The note and the optional email go
+   through the Hoplight signal kit; nothing else from this screen is sent, the name least of all. */
+document.getElementById("tellForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const said = document.getElementById("tellSaid");
+  const msg = document.getElementById("tellMsg");
+  const mail = document.getElementById("tellMail");
+  const send = document.getElementById("tellSend");
+  const message = msg.value.trim();
+  const contact = mail.value.trim();
+  if(!message){ said.textContent = "Write a line first, then send."; msg.focus(); return; }
+  const kit = window.hoplightSignal;
+  send.disabled = true;
+  said.textContent = "Sending.";
+  const ok = kit ? await kit.feedback(SIG_TOOL, message, contact || undefined).catch(() => false) : false;
+  send.disabled = false;
+  if(ok){ msg.value = ""; mail.value = ""; said.textContent = "Sent. Thank you."; }
+  else said.textContent = "That did not send. Check the connection and try again.";
+});
+
 function buildPhrasebook(){
   const wrap = document.getElementById("pbWrap");
   let html = '<table class="pb"><thead><tr><th>Español</th><th>English</th></tr></thead><tbody>';
@@ -3445,6 +3574,10 @@ function unlock(){
   refreshVoice();
   syncMuteButton();
   document.getElementById("unlock").style.display = "none";
+  if(!sigOpened){
+    sigOpened = true;
+    sig("open", {voice: activeVoice, speed: S.speed, muted: !!S.muted, returning: Object.keys(S.stars).length > 0});
+  }
 }
 document.getElementById("unlockBtn").onclick = unlock;
 document.getElementById("unlock").onclick = unlock;
@@ -3474,6 +3607,7 @@ function toggleMute(){
   if(!audioReady() && !S.muted){ ensureAudio(); syncMuteButton(); return; }
   S.muted = !S.muted;
   save();
+  sig("mute", {muted: !!S.muted});
   if(masterGain) masterGain.gain.value = S.muted ? 0 : 1;
   if(S.muted){ stopSpeech(); keepaliveOff(); }
   else { ensureAudio(); keepaliveOn(); }
@@ -3514,5 +3648,8 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 </script>
+<!-- KIDSIGNAL1, 2026-11-07: the Hoplight signal kit, last on the page and deferred, so the app above
+     has already run and never waits on it. Offline it never arrives and nothing changes. -->
+<script src="https://hoplight.ai/kit/signal.js" defer id="hoplightKit"></script>
 </body>
 </html>
