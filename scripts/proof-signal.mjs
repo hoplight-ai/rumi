@@ -41,7 +41,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 
 let fails = 0;
 const ok = (name, cond, detail = '') => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`); if (!cond) fails++; };
-const waitFor = async (fn, ms = 10000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+const waitFor = async (fn, ms = 10000, each = async () => {}) => { const end = Date.now() + ms; while (Date.now() < end) { await each(); if (fn()) return true; await new Promise((r) => setTimeout(r, 150)); } return false; };
 
 async function serveFromDisk(context) {
   await context.route(`${LIVE_ORIGIN}/**`, (route) => {
@@ -62,14 +62,30 @@ try {
   await cx.addInitScript((name) => {
     try { if (!localStorage.getItem('rumi.v1')) localStorage.setItem('rumi.v1', JSON.stringify({ name, age: 5, stars: {} })); } catch {}
   }, NAME);
+  // The kit sends events with sendBeacon and a Blob body, and against the deployed site the browser
+  // does not show that body to playwright (it did when the page came from disk; seen 2026-11-07, all
+  // eight posts answered 202 with empty bodies). So a spy in this test browser copies each beacon's
+  // body as it is sent, and the beacon rows below take those bodies in order. The page is untouched.
+  await cx.addInitScript(() => {
+    window.__beacons = [];
+    const send = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);
+    if (send) navigator.sendBeacon = (url, data) => {
+      if (String(url).endsWith('/api/signal') && data instanceof Blob) data.text().then((t) => window.__beacons.push(t));
+      return send(url, data);
+    };
+  });
   const seen = [];
   cx.on('request', (req) => {
     if (req.url() === SIGNAL_URL && req.method() === 'POST') {
-      const row = { body: req.postData() || '', status: null };
+      const row = { body: req.postData() || '', status: null, beacon: !req.postData() };
       seen.push(row);
       req.response().then((res) => { row.status = res ? res.status() : null; }).catch(() => {});
     }
   });
+  const fillBeacons = async (page) => {
+    const bodies = await page.evaluate(() => window.__beacons.slice()).catch(() => []);
+    seen.filter((r) => r.beacon).forEach((r, i) => { if (bodies[i]) r.body = bodies[i]; });
+  };
   const parsed = () => seen.map((r) => { try { return { ...JSON.parse(r.body), status: r.status, raw: r.body }; } catch { return { status: r.status, raw: r.body }; } });
   const events = () => parsed().filter((s) => s.kind === 'event');
 
@@ -97,7 +113,7 @@ try {
     ok('a copy that is not the live address sends nothing', seen.length === 0, `${seen.length} posts`);
   } else {
     const want = ['open', 'deck-open', 'play', 'replay', 'screen'];
-    await waitFor(() => want.every((a) => events().some((s) => s.action === a && s.status)));
+    await waitFor(() => want.every((a) => events().some((s) => s.action === a && s.status)), 10000, () => fillBeacons(page));
     for (const a of want) {
       const e = events().find((s) => s.action === a);
       ok(`${a} is logged and answered 202`, e && e.status === 202, e ? `${e.status} ${JSON.stringify(e.props)}` : 'none');
@@ -128,6 +144,7 @@ try {
     await page.locator('#tellSaid', { hasText: 'Sent.' }).waitFor({ timeout: 8000 }).catch(() => {});
     ok('the feedback note answers 202', fb.status() === 202, String(fb.status()));
     ok('the box says it was sent', (await page.locator('#tellSaid').textContent()).startsWith('Sent.'));
+    await waitFor(() => events().some((s) => s.action === 'screen' && s.props.screen === 'grown-ups' && s.status), 5000, () => fillBeacons(page));
     const sc = events().find((s) => s.action === 'screen' && s.props.screen === 'grown-ups');
     ok('opening Grown-ups is logged', !!sc && sc.status === 202, sc ? String(sc.status) : 'none');
   }
@@ -135,6 +152,7 @@ try {
   // Nothing typed and never the name: the stored name appears in no body, and every string prop
   // is one of the app's fixed words.
   await page.waitForTimeout(800);
+  await fillBeacons(page);
   const words = await page.evaluate(() => [...sigWords()]);
   const strayStrings = events().flatMap((s) => Object.entries(s.props || {}).filter(([, v]) => typeof v === 'string' && !words.includes(v)).map(([k, v]) => `${s.action}.${k}=${v}`));
   ok('the stored name is in nothing sent', seen.every((r) => !r.body.includes(NAME)));
