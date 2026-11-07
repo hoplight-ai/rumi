@@ -9,6 +9,7 @@
     "check": "node scripts/ci-check.mjs",
     "test:rumi": "node scripts/rumi-unit-test.mjs",
     "test:audio": "node scripts/rumi-audio-smoke.mjs",
+    "proof:signal": "node scripts/proof-signal.mjs",
     "rumi:strings": "node scripts/rumi-strings.mjs",
     "rumi:audio": "node scripts/rumi-audio.mjs",
     "rumi:cues": "node scripts/rumi-cues.mjs",

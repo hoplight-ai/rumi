@@ -703,7 +703,7 @@ ok('every CUE_KEY has a generated line', (() => {
       .test(html)
     && /if\(tr\) trBegin\(\);\s*\n\s*else\{[\s\S]{0,240}markDone\(\);[\s\S]{0,160}"next go";/.test(html));
   ok('the trace 🔊 replays the letter AND the stroke instruction, not the stroke alone',
-    /btn\.onclick = \(\) => \{ stopSpeech\(\); speak\(spokenOf\(c\), trBegin\); \};/.test(html));
+    /btn\.onclick = \(\) => \{ stopSpeech\(\); speak\(spokenOf\(c\), trBegin\);( sig\("replay", sigCard\(\)\);)? \};/.test(html));
   ok('the age gate reads the stored age, never a hardcoded list of letters',
     /\(g\.minAge \|\| 0\) > \(S\.age \|\| 5\)\) return null;/.test(html)
     && !/diagonalsOn|DIAGONAL_LETTERS/.test(html));

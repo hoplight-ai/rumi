@@ -107,7 +107,15 @@ for (const [, attrs, href] of html.matchAll(/<link([^>]*)\shref\s*=\s*["']([^"']
   }
   refs.add(href);
 }
+// ONE MORE NAMED EXCEPTION, added 2026-11-07 (KIDSIGNAL1), on the same reasoning as the two above:
+// the Hoplight signal kit, which logs anonymous taps and carries the grown-ups' feedback box. Nothing
+// the app does waits on it; it loads deferred after the app script, and offline it never arrives and
+// the app is unchanged. It is exempt by its EXACT TAG, once, and section 10 below proves its place on
+// the page and what it may be told. Whit, 2026-11-07: "3 i want usage".
+const KIT_TAG = '<script src="https://hoplight.ai/kit/signal.js" defer id="hoplightKit"></script>';
+const KIT_SRC = 'https://hoplight.ai/kit/signal.js';
 for (const [, src] of html.matchAll(/<(?:script|img|audio|source|iframe)[^>]*\ssrc\s*=\s*["']([^"']+)["']/gi)) refs.add(src);
+if (html.split(KIT_TAG).length === 2) refs.delete(KIT_SRC);
 const external = [...refs].filter((r) => !r.startsWith('data:'));
 if (external.length === 0) ok('page is self-contained: 0 subresource references');
 else bad('page is self-contained', `references ${external.join(', ')}. Rumi is one file on purpose — it must work with no network. Inline it or this app breaks offline.`);
@@ -482,5 +490,100 @@ if (existsSync(BAKEOFF)) {
 
 if (!existsSync('index.html')) ok('no index.html — the bare domain is served by a rewrite, so the real file keeps a findable name');
 else bad('no index.html', 'an index.html appeared. Root CLAUDE.md allows it only when a server requires that exact name, and the rewrite in vercel.json means one does not. Serve the descriptively named file instead.');
+
+// ---------------------------------------------------------------------------
+// 10. ANONYMOUS USAGE AND THE FEEDBACK BOX (KIDSIGNAL1, 2026-11-07). Whit, 2026-11-07: "3 i want
+//     usage", for an app a toddler uses. The rules this section holds: the kit loads after the app
+//     script so the app never waits on it; usage is taps and screens only, never anything typed and
+//     never the name; the feedback box sits behind the Grown-ups gear where the child does not go.
+//     Every sig() call is read here, and a value this gate does not know is a failure: adding one
+//     means adding it to SAFE_VALUES below, on purpose, in a reviewed commit.
+// ---------------------------------------------------------------------------
+{
+  // The kit: once, by its exact tag, after every inline script, and the last script on the page.
+  const kitCount = html.split(KIT_SRC).length - 1;
+  const kitAt = html.indexOf(KIT_TAG);
+  if (kitCount === 1 && kitAt > 0) ok('the Hoplight signal kit is on the page once, by its exact deferred tag');
+  else bad('the Hoplight signal kit is on the page once, by its exact deferred tag', `${kitCount} references to ${KIT_SRC}; the one allowed form is ${KIT_TAG}`);
+  const inlineEnds = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>[\s\S]*?<\/script>/g)].map((m) => m.index + m[0].length);
+  const lastInline = Math.max(...inlineEnds);
+  const lastScriptStart = Math.max(...[...html.matchAll(/<script\b/g)].map((m) => m.index));
+  if (kitAt > lastInline && kitAt === lastScriptStart) ok('the kit loads after the app script, so the app never waits on it');
+  else bad('the kit loads after the app script', 'the kit tag must come after every inline <script> block and be the last script on the page. Loaded earlier, a slow or offline hoplight.ai sits in front of a five-year-old.');
+
+  // The one helper, gated to the live address, and the only place the kit is told anything.
+  const app = blocks.map((b) => b[2]).find((code) => code.includes('function sig(action, props)')) || '';
+  const start = app.indexOf('/* ================= anonymous usage (KIDSIGNAL1');
+  const end = app.indexOf('/* ================= state =================', start);
+  const helper = start >= 0 && end > start ? app.slice(start, end) : '';
+  if (helper && /if\(location\.origin !== SIG_ORIGIN\) return;/.test(helper) && /const SIG_ORIGIN = "https:\/\/rumi-rouge\.vercel\.app";/.test(helper)) ok('usage is logged only on the live address (sig() is gated on SIG_ORIGIN)');
+  else bad('usage is logged only on the live address', 'sig() in the app block must start with `if(location.origin !== SIG_ORIGIN) return;` and SIG_ORIGIN must be https://rumi-rouge.vercel.app');
+  if (helper && /else if\(typeof v === "string" && sigWords\(\)\.has\(v\)\) clean\[k\] = v;/.test(helper) && /if\(!SIG_KEYS\.has\(k\)\) continue;/.test(helper)) ok('sig() drops any prop name not listed and any string that is not one of the app\'s own fixed words');
+  else bad('sig() keeps its runtime allow-list', 'the helper must drop unknown prop names (SIG_KEYS) and any string value outside sigWords(), so a name can never pass at run time either');
+  const outside = app.replace(helper, '');
+  const trackOutside = (outside.match(/\.track\(/g) || []).length;
+  if (helper && trackOutside === 0) ok('nothing outside the helper calls the kit\'s track()');
+  else bad('nothing outside the helper calls the kit\'s track()', `${trackOutside} .track( calls outside the sig() helper bypass its gates`);
+
+  // Every sig() call, read argument by argument.
+  const actions = new Set([...(helper.match(/const SIG_ACTIONS = new Set\(\[([\s\S]*?)\]\)/)?.[1] || '').matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  const keys = new Set([...(helper.match(/const SIG_KEYS = new Set\(\[([\s\S]*?)\]\)/)?.[1] || '').matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  const ACTION_RULE = /^[a-z0-9][a-z0-9.:-]{0,63}$/;   // hoplight.ai's own rule, src/lib/signal.ts: no underscore
+  const badActions = [...actions].filter((a) => !ACTION_RULE.test(a));
+  if (actions.size && !badActions.length) ok(`every action name meets hoplight.ai's rule: ${[...actions].join(', ')}`);
+  else bad('every action name meets hoplight.ai\'s rule', `refused by the store: ${badActions.join(', ') || '(no SIG_ACTIONS found)'}`);
+  // Each of these is a fixed id, a count, a flag or a setting from a fixed list. Nothing typed,
+  // nothing with words in it, never S.name, never a .value from an input.
+  const SAFE_VALUES = new Set([
+    'cur.id', 'cur.cards.length', '(S.stars[cur.id] || []).length', 'S.speed', 'activeVoice',
+    'v.slug', '!!S.muted', 'Object.keys(S.stars).length > 0', 'SIG_SCREEN[id]', '!!o.correct', 'first',
+  ]);
+  const calls = [];
+  for (const m of outside.matchAll(/\bsig\(/g)) {
+    let i = m.index + 4, depth = 1;
+    while (i < outside.length && depth) { const ch = outside[i]; if (ch === '(') depth++; else if (ch === ')') depth--; i++; }
+    calls.push(outside.slice(m.index + 4, i - 1));
+  }
+  const splitTop = (s) => { const out = []; let d = 0, cur = ''; for (const ch of s) { if ('({['.includes(ch)) d++; if (')}]'.includes(ch)) d--; if (ch === ',' && d === 0) { out.push(cur.trim()); cur = ''; } else cur += ch; } if (cur.trim()) out.push(cur.trim()); return out; };
+  const wrong = [];
+  for (const call of calls) {
+    const [action, props, ...rest] = splitTop(call);
+    const lit = action && action.match(/^"([^"]+)"$/);
+    if (!lit || !actions.has(lit[1])) { wrong.push(`sig(${call}): the action must be a quoted name from SIG_ACTIONS`); continue; }
+    if (rest.length) { wrong.push(`sig(${call}): two arguments only`); continue; }
+    if (props === 'sigCard()') continue;
+    const obj = props && props.match(/^\{([\s\S]*)\}$/);
+    if (!obj) { wrong.push(`sig(${call}): props must be sigCard() or an object literal`); continue; }
+    for (const item of splitTop(obj[1])) {
+      if (item === '...sigCard()') continue;
+      const kv = item.match(/^([A-Za-z]+):\s*([\s\S]+)$/);
+      if (!kv) { wrong.push(`sig(${call}): "${item}" is not key: value`); continue; }
+      if (!keys.has(kv[1])) wrong.push(`sig(${call}): prop "${kv[1]}" is not in SIG_KEYS`);
+      if (!SAFE_VALUES.has(kv[2].trim())) wrong.push(`sig(${call}): value "${kv[2].trim()}" is not a known fixed value; it could be free text`);
+    }
+  }
+  if (calls.length && !wrong.length) ok(`every logged prop is a fixed id, count, flag or setting: ${calls.length} sig() calls read, none carries free text`);
+  else bad('every logged prop is a fixed id, count, flag or setting', wrong.join('\n      ') || 'no sig() calls found');
+  const sigCardBody = helper.match(/function sigCard\(\)\{([\s\S]*?)\n\}/)?.[1] || '';
+  if (/return c \? \{deck: cur\.id, card: idx, kind: c\.t\} : \{\};/.test(sigCardBody)) ok('sigCard() sends the deck id, the card\'s place and its type, never its words');
+  else bad('sigCard() sends no words', 'sigCard() must return exactly {deck: cur.id, card: idx, kind: c.t}; a card\'s text can carry the name');
+
+  // The feedback box: behind the Grown-ups gear, with the line, and nowhere the child goes.
+  const setAt = html.indexOf('<div class="screen" id="scSet">');
+  const setEnd = html.indexOf('<script', setAt);
+  const grownUps = setAt >= 0 ? html.slice(setAt, setEnd) : '';
+  const boxes = html.split('data-hoplight-feedback').length - 1;
+  if (boxes === 1 && grownUps.includes('data-hoplight-feedback')) ok('the feedback box is in Grown-ups, once, where the child does not land');
+  else bad('the feedback box is in Grown-ups', `${boxes} feedback boxes; the one box belongs inside #scSet`);
+  if (grownUps.includes('Anonymous usage is logged to make this better. No names, no addresses.')) ok('Grown-ups carries the anonymous-usage line');
+  else bad('Grown-ups carries the anonymous-usage line', 'the line "Anonymous usage is logged to make this better. No names, no addresses." is missing from #scSet');
+
+  // The link preview: Hoplight's card for this tool, and the name with "by Hoplight".
+  const CARD = 'https://hoplight.ai/api/og/tool/rumi';
+  if (html.includes(`<meta property="og:image" content="${CARD}">`) && html.includes(`<meta name="twitter:image" content="${CARD}">`)) ok(`og:image and twitter:image are ${CARD}`);
+  else bad('og:image and twitter:image are the Hoplight card', `both must be ${CARD}`);
+  if (html.includes('<meta property="og:title" content="Rumi Español by Hoplight">') && html.includes('<meta name="twitter:title" content="Rumi Español by Hoplight">')) ok('og:title and twitter:title read "Rumi Español by Hoplight"');
+  else bad('og:title and twitter:title read "Rumi Español by Hoplight"', 'the link-preview titles changed');
+}
 
 finish();
