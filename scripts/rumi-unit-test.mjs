@@ -278,8 +278,21 @@ ok('grid rows are pinned to max-content, so tiles cannot collapse',
    its evidence to match the new home. It is now stricter than the old one, because it forbids a
    gate from appearing at all rather than checking that one list omits one path. */
 {
-  const gateFiles = ['middleware.js', 'middleware.ts', '_middleware.js'].filter((f) => fs.existsSync(path.join(ROOT, f)));
-  ok('no middleware file exists (the user is five — she must never meet a login screen)', gateFiles.length === 0);
+  // 2026-11-08: middleware.js now exists, to lock the grown-ups' voice comparison page only (Whit,
+  // 2026-11-07: "all the pages need to be behind passwords"). The intent is unchanged and now checked
+  // against the gate itself: no path the app or its voices use may ever be gated.
+  const gateFiles = ['middleware.ts', '_middleware.js'].filter((f) => fs.existsSync(path.join(ROOT, f)));
+  ok('no second middleware file exists beside middleware.js', gateFiles.length === 0);
+  const mwPath = path.join(ROOT, 'middleware.js');
+  if (fs.existsSync(mwPath)) {
+    const { isGated, config } = await import(mwPath);
+    const appPaths = ['/', '/rumi', '/rumi-espanol-app', '/rumi-espanol-app.html', '/manifest.json',
+      '/icon-192.png', '/apple-touch-icon.png', '/rumi-og-card.png', '/voices/alma/index.json'];
+    const caught = appPaths.filter((p) => isGated(p));
+    ok(`the app opens with no credential (the user is five — she must never meet a login screen)${caught.length ? ': gated ' + caught.join(', ') : ''}`, caught.length === 0);
+    const matcher = new RegExp('^' + config.matcher[0] + '$');
+    ok('the gate never runs on the voice clips', !matcher.test('/voices/alma/index.json') && !matcher.test('/voices/sofia/x.mp3'));
+  }
 
   const vercelPath = path.join(ROOT, 'vercel.json');
   const vercel = fs.existsSync(vercelPath) ? JSON.parse(fs.readFileSync(vercelPath, 'utf8')) : {};

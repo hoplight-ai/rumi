@@ -14,7 +14,8 @@ Vercel generated for this project is the one that counts; do not guess it from t
 | Path | What it is |
 |---|---|
 | `rumi-espanol-app.html` | the whole app, 5,787,537 bytes |
-| `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` |
+| `rumi-voice-bakeoff.html` | voice comparison, for Whit's ear. Served at `/rumi-voice-bakeoff` behind the site password (2026-11-08) |
+| `middleware.js` | the lock on the comparison page: Basic Auth with `PRIVATE_SITE_USER` / `PRIVATE_SITE_PASSWORD`, 20 wrong tries per address per 15 minutes then 429; the app and voices stay open. `npm run test:gate` |
 | `voices/<slug>/index.json` | one voice's clip list — file name, byte size, and word-timing spans for every line |
 | `voices/<slug>/<clip-id>.mp3` | one recording, downloaded the once a grown-up picks that voice |
 | `scripts/rumi-voices.mjs` | the one list of the five voices. Four things read it; none keeps a copy |

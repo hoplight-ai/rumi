@@ -72,6 +72,13 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: node scripts/rumi-unit-test.mjs
 
+      # The lock on the voice comparison page (middleware.js, 2026-11-08): no pair is 401, the right
+      # pair passes, twenty wrong pairs from one address then 429, the app and its voices stay open.
+      # No secrets: it sets a test pair of its own. Seen red with the gate set aside before commit.
+      - name: 'test: voice page lock'
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: node --test scripts/rumi-gate-test.mjs
+
       # The gate that actually listens. Added 2026-08-30, after three separate bugs each made
       # the app COMPLETELY SILENT while both checks above stayed green. They had to: they read
       # the file, and every clip in the file was perfect. "Does a buffer reach the speakers" is

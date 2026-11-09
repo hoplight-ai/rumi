@@ -8,6 +8,7 @@
   "scripts": {
     "check": "node scripts/ci-check.mjs",
     "test:rumi": "node scripts/rumi-unit-test.mjs",
+    "test:gate": "node --test scripts/rumi-gate-test.mjs",
     "test:audio": "node scripts/rumi-audio-smoke.mjs",
     "proof:signal": "node scripts/proof-signal.mjs",
     "rumi:strings": "node scripts/rumi-strings.mjs",
